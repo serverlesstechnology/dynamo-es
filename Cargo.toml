@@ -11,8 +11,11 @@ documentation = "https://docs.rs/dynamo-es"
 readme = "README.md"
 
 [dependencies]
-cqrs-es = "0.2.4"
-persist-es = "0.2.4"
+cqrs-es = "0.2.5"
+persist-es = "0.2.5"
+
+aws-config = "0.3.0"
+aws-sdk-dynamodb = "0.3.0"
 
 async-trait = "0.1.52"
 futures = "0.3.17"
