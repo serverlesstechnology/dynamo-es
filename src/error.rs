@@ -1,5 +1,5 @@
 use aws_sdk_dynamodb::error::TransactWriteItemsError;
-use aws_sdk_dynamodb::error::{QueryError, ScanError, TransactWriteItemsErrorKind};
+use aws_sdk_dynamodb::error::{QueryError, TransactWriteItemsErrorKind};
 use aws_sdk_dynamodb::SdkError;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -54,8 +54,8 @@ impl From<SdkError<TransactWriteItemsError>> for DynamoAggregateError {
             SdkError::ConstructionFailure(err) => DynamoAggregateError::UnknownError(err),
             SdkError::TimeoutError(err) => DynamoAggregateError::UnknownError(err),
             SdkError::DispatchFailure(err) => DynamoAggregateError::UnknownError(Box::new(err)),
-            SdkError::ResponseError { err, raw } => DynamoAggregateError::UnknownError(err),
-            SdkError::ServiceError { err, raw } => match &err.kind {
+            SdkError::ResponseError { err, .. } => DynamoAggregateError::UnknownError(err),
+            SdkError::ServiceError { err, .. } => match &err.kind {
                 TransactWriteItemsErrorKind::TransactionCanceledException(cancellation) => {
                     if let Some(reasons) = &cancellation.cancellation_reasons {
                         for reason in reasons {
@@ -80,10 +80,8 @@ impl From<SdkError<QueryError>> for DynamoAggregateError {
             SdkError::ConstructionFailure(err) => DynamoAggregateError::UnknownError(err),
             SdkError::TimeoutError(err) => DynamoAggregateError::UnknownError(err),
             SdkError::DispatchFailure(err) => DynamoAggregateError::UnknownError(Box::new(err)),
-            SdkError::ResponseError { err, raw } => DynamoAggregateError::UnknownError(err),
-            SdkError::ServiceError { err, raw } => {
-                DynamoAggregateError::UnknownError(Box::new(err))
-            }
+            SdkError::ResponseError { err, .. } => DynamoAggregateError::UnknownError(err),
+            SdkError::ServiceError { err, .. } => DynamoAggregateError::UnknownError(Box::new(err)),
         }
     }
 }

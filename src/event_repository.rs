@@ -1,6 +1,7 @@
 use crate::error::DynamoAggregateError;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
+use aws_sdk_dynamodb::output::QueryOutput;
 use aws_sdk_dynamodb::{Blob, Client};
 use cqrs_es::Aggregate;
 use persist_es::{PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot};
@@ -13,6 +14,7 @@ pub struct DynamoEventRepository {
 }
 
 const EVENT_TABLE: &str = "Events";
+const SNAPSHOT_TABLE: &str = "Snapshots";
 
 impl DynamoEventRepository {
     pub fn new(client: Client) -> Self {
@@ -23,8 +25,20 @@ impl DynamoEventRepository {
         &self,
         events: &[SerializedEvent],
     ) -> Result<(), DynamoAggregateError> {
+        let (transactions, _) = Self::build_event_put_transactions(events);
+        self.client
+            .transact_write_items()
+            .set_transact_items(Some(transactions))
+            .send()
+            .await?;
+        Ok(())
+    }
+
+    fn build_event_put_transactions(events: &[SerializedEvent]) -> (Vec<TransactWriteItem>, usize) {
+        let mut current_sequence: usize = 0;
         let mut transactions: Vec<TransactWriteItem> = Vec::default();
         for event in events {
+            current_sequence = event.sequence;
             let aggregate_type_and_id = AttributeValue::S(String::from(format!(
                 "{}:{}",
                 &event.aggregate_type, &event.aggregate_id
@@ -54,6 +68,60 @@ impl DynamoEventRepository {
             let write_item = TransactWriteItem::builder().put(put).build();
             transactions.push(write_item);
         }
+        (transactions, current_sequence)
+    }
+
+    async fn query_events(
+        &self,
+        aggregate_type: &str,
+        aggregate_id: &str,
+    ) -> Result<Vec<SerializedEvent>, DynamoAggregateError> {
+        let query_output = self
+            .query_table(aggregate_type, aggregate_id, EVENT_TABLE)
+            .await?;
+        let mut result: Vec<SerializedEvent> = Default::default();
+        if let Some(entries) = query_output.items {
+            for entry in entries {
+                result.push(serialized_event(entry));
+            }
+        }
+        Ok(result)
+    }
+
+    pub(crate) async fn update_snapshot<A: Aggregate>(
+        &self,
+        aggregate_payload: Value,
+        aggregate_id: String,
+        current_snapshot: usize,
+        events: &[SerializedEvent],
+    ) -> Result<(), DynamoAggregateError> {
+        let expected_snapshot = current_snapshot - 1;
+        let (mut transactions, current_sequence) = Self::build_event_put_transactions(events);
+        let aggregate_type_and_id = AttributeValue::S(String::from(format!(
+            "{}:{}",
+            A::aggregate_type(),
+            &aggregate_id
+        )));
+        let aggregate_type = AttributeValue::S(String::from(A::aggregate_type()));
+        let aggregate_id = AttributeValue::S(String::from(aggregate_id));
+        let current_sequence = AttributeValue::N(String::from(current_sequence.to_string()));
+        let current_snapshot = AttributeValue::N(String::from(current_snapshot.to_string()));
+        let payload_blob = serde_json::to_vec(&aggregate_payload).unwrap();
+        let payload = AttributeValue::B(Blob::new(payload_blob));
+        let expected_snapshot = AttributeValue::N(String::from(expected_snapshot.to_string()));
+        transactions.push(TransactWriteItem::builder()
+            .put(Put::builder()
+                .table_name(SNAPSHOT_TABLE)
+                .item("AggregateTypeAndId", aggregate_type_and_id)
+                .item("AggregateType", aggregate_type)
+                .item("AggregateId", aggregate_id)
+                .item("CurrentSequence", current_sequence)
+                .item("CurrentSnapshot", current_snapshot)
+                .item("Payload", payload)
+                .condition_expression("attribute_not_exists(CurrentSnapshot) OR (CurrentSnapshot  = :current_snapshot)")
+                .expression_attribute_values(":current_snapshot",expected_snapshot)
+                .build())
+            .build());
         self.client
             .transact_write_items()
             .set_transact_items(Some(transactions))
@@ -62,15 +130,16 @@ impl DynamoEventRepository {
         Ok(())
     }
 
-    async fn query_events(
+    async fn query_table(
         &self,
         aggregate_type: &str,
         aggregate_id: &str,
-    ) -> Result<Vec<SerializedEvent>, DynamoAggregateError> {
-        let scan_output = self
+        table: &str,
+    ) -> Result<QueryOutput, DynamoAggregateError> {
+        Ok(self
             .client
             .query()
-            .table_name(EVENT_TABLE)
+            .table_name(table)
             .key_condition_expression("#agg_type_id = :agg_type_id")
             .expression_attribute_names("#agg_type_id", "AggregateTypeAndId")
             .expression_attribute_values(
@@ -78,48 +147,18 @@ impl DynamoEventRepository {
                 AttributeValue::S(format!("{}:{}", aggregate_type, aggregate_id)),
             )
             .send()
-            .await?;
-        let mut result: Vec<SerializedEvent> = Default::default();
-        if let Some(entries) = scan_output.items {
-            for entry in entries {
-                result.push(serialized_event(entry));
-            }
-        }
-        Ok(result)
+            .await?)
     }
 }
 
 fn serialized_event(entry: HashMap<String, AttributeValue>) -> SerializedEvent {
-    let aggregate_id = entry
-        .get("AggregateId")
-        .unwrap()
-        .as_s()
-        .unwrap()
-        .to_string();
-    let sequence = entry
-        .get("AggregateIdSequence")
-        .unwrap()
-        .as_n()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let aggregate_type = entry
-        .get("AggregateType")
-        .unwrap()
-        .as_s()
-        .unwrap()
-        .to_string();
-    let event_type = entry.get("EventType").unwrap().as_s().unwrap().to_string();
-    let event_version = entry
-        .get("EventVersion")
-        .unwrap()
-        .as_s()
-        .unwrap()
-        .to_string();
-    let payload_blob = entry.get("Payload").unwrap().as_b().unwrap();
-    let payload = serde_json::from_slice(payload_blob.clone().into_inner().as_slice()).unwrap();
-    let metadata_blob = entry.get("Metadata").unwrap().as_b().unwrap();
-    let metadata = serde_json::from_slice(metadata_blob.clone().into_inner().as_slice()).unwrap();
+    let aggregate_id = att_as_string(entry.get("AggregateId"));
+    let sequence = att_as_number(entry.get("AggregateIdSequence"));
+    let aggregate_type = att_as_string(entry.get("AggregateType"));
+    let event_type = att_as_string(entry.get("EventType"));
+    let event_version = att_as_string(entry.get("EventVersion"));
+    let payload = att_as_value(entry.get("Payload"));
+    let metadata = att_as_value(entry.get("Metadata"));
     SerializedEvent {
         aggregate_id,
         sequence,
@@ -129,6 +168,20 @@ fn serialized_event(entry: HashMap<String, AttributeValue>) -> SerializedEvent {
         payload,
         metadata,
     }
+}
+
+fn att_as_value(attribute: Option<&AttributeValue>) -> Value {
+    let payload_blob = attribute.unwrap().as_b().unwrap();
+    let payload = serde_json::from_slice(payload_blob.clone().into_inner().as_slice()).unwrap();
+    payload
+}
+
+fn att_as_number(attribute: Option<&AttributeValue>) -> usize {
+    attribute.unwrap().as_n().unwrap().parse().unwrap()
+}
+
+fn att_as_string(attribute: Option<&AttributeValue>) -> String {
+    attribute.unwrap().as_s().unwrap().to_string()
 }
 
 #[async_trait]
@@ -151,9 +204,32 @@ impl PersistedEventRepository for DynamoEventRepository {
 
     async fn get_snapshot<A: Aggregate>(
         &self,
-        _aggregate_id: &str,
+        aggregate_id: &str,
     ) -> Result<Option<SerializedSnapshot>, PersistenceError> {
-        todo!()
+        let query_output = self
+            .query_table(A::aggregate_type(), aggregate_id, SNAPSHOT_TABLE)
+            .await?;
+        let query_items_vec = match query_output.items {
+            None => return Ok(None),
+            Some(items) => items,
+        };
+        if query_items_vec.len() == 0 {
+            return Ok(None);
+        } else if query_items_vec.len() != 1 {
+            // return Err(DynamoAggregateError::UnknownError())
+            panic!()
+        }
+        let query_item = query_items_vec.get(0).unwrap();
+        let aggregate = att_as_value(query_item.get("Payload"));
+        let current_sequence = att_as_number(query_item.get("CurrentSequence"));
+        let current_snapshot = att_as_number(query_item.get("CurrentSnapshot"));
+
+        Ok(Some(SerializedSnapshot {
+            aggregate_id: aggregate_id.to_string(),
+            aggregate,
+            current_sequence,
+            current_snapshot,
+        }))
     }
 
     async fn persist<A: Aggregate>(
@@ -165,8 +241,9 @@ impl PersistedEventRepository for DynamoEventRepository {
             None => {
                 self.insert_events::<A>(events).await?;
             }
-            Some(_snapshot) => {
-                todo!()
+            Some((aggregate_id, aggregate, current_snapshot)) => {
+                self.update_snapshot::<A>(aggregate, aggregate_id, current_snapshot, events)
+                    .await?;
             }
         }
         Ok(())
@@ -177,8 +254,9 @@ impl PersistedEventRepository for DynamoEventRepository {
 mod test {
     use crate::error::DynamoAggregateError;
     use crate::testing::tests::{
-        new_test_event_store, new_test_metadata, new_test_snapshot_store, test_dynamodb_client,
-        test_event_envelope, Created, SomethingElse, TestAggregate, TestEvent, Tested,
+        new_test_event_store, new_test_metadata, new_test_snapshot_store, snapshot_context,
+        test_dynamodb_client, test_event_envelope, Created, SomethingElse, TestAggregate,
+        TestEvent, Tested,
     };
     use crate::DynamoEventRepository;
     use cqrs_es::EventStore;
@@ -328,101 +406,101 @@ mod test {
 
         let test_description = "some test snapshot here".to_string();
         let test_tests = vec!["testA".to_string(), "testB".to_string()];
-        // repo.insert::<TestAggregate>(
-        //     serde_json::to_value(TestAggregate {
-        //         id: id.clone(),
-        //         description: test_description.clone(),
-        //         tests: test_tests.clone(),
-        //     })
-        //         .unwrap(),
-        //     id.clone(),
-        //     1,
-        //     &vec![],
-        // )
-        //     .await
-        //     .unwrap();
-        //
-        // let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
-        // assert_eq!(
-        //     Some(snapshot_context(
-        //         id.clone(),
-        //         0,
-        //         1,
-        //         serde_json::to_value(TestAggregate {
-        //             id: id.clone(),
-        //             description: test_description.clone(),
-        //             tests: test_tests.clone(),
-        //         })
-        //             .unwrap()
-        //     )),
-        //     snapshot
-        // );
-        //
-        // // sequence iterated, does update
-        // repo.update::<TestAggregate>(
-        //     serde_json::to_value(TestAggregate {
-        //         id: id.clone(),
-        //         description: "a test description that should be saved".to_string(),
-        //         tests: test_tests.clone(),
-        //     })
-        //         .unwrap(),
-        //     id.clone(),
-        //     2,
-        //     &vec![],
-        // )
-        //     .await
-        //     .unwrap();
-        //
-        // let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
-        // assert_eq!(
-        //     Some(snapshot_context(
-        //         id.clone(),
-        //         0,
-        //         2,
-        //         serde_json::to_value(TestAggregate {
-        //             id: id.clone(),
-        //             description: "a test description that should be saved".to_string(),
-        //             tests: test_tests.clone(),
-        //         })
-        //             .unwrap()
-        //     )),
-        //     snapshot
-        // );
-        //
-        // // sequence out of order or not iterated, does not update
-        // let result = repo
-        //     .update::<TestAggregate>(
-        //         serde_json::to_value(TestAggregate {
-        //             id: id.clone(),
-        //             description: "a test description that should not be saved".to_string(),
-        //             tests: test_tests.clone(),
-        //         })
-        //             .unwrap(),
-        //         id.clone(),
-        //         2,
-        //         &vec![],
-        //     )
-        //     .await
-        //     .unwrap_err();
-        // match result {
-        //     DynamoAggregateError::OptimisticLock => {}
-        //     _ => panic!("invalid error result found during insert: {}", result),
-        // };
-        //
-        // let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
-        // assert_eq!(
-        //     Some(snapshot_context(
-        //         id.clone(),
-        //         0,
-        //         2,
-        //         serde_json::to_value(TestAggregate {
-        //             id: id.clone(),
-        //             description: "a test description that should be saved".to_string(),
-        //             tests: test_tests.clone(),
-        //         })
-        //             .unwrap()
-        //     )),
-        //     snapshot
-        // );
+        repo.update_snapshot::<TestAggregate>(
+            serde_json::to_value(TestAggregate {
+                id: id.clone(),
+                description: test_description.clone(),
+                tests: test_tests.clone(),
+            })
+            .unwrap(),
+            id.clone(),
+            1,
+            &vec![],
+        )
+        .await
+        .unwrap();
+
+        let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
+        assert_eq!(
+            Some(snapshot_context(
+                id.clone(),
+                0,
+                1,
+                serde_json::to_value(TestAggregate {
+                    id: id.clone(),
+                    description: test_description.clone(),
+                    tests: test_tests.clone(),
+                })
+                .unwrap()
+            )),
+            snapshot
+        );
+
+        // sequence iterated, does update
+        repo.update_snapshot::<TestAggregate>(
+            serde_json::to_value(TestAggregate {
+                id: id.clone(),
+                description: "a test description that should be saved".to_string(),
+                tests: test_tests.clone(),
+            })
+            .unwrap(),
+            id.clone(),
+            2,
+            &vec![],
+        )
+        .await
+        .unwrap();
+
+        let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
+        assert_eq!(
+            Some(snapshot_context(
+                id.clone(),
+                0,
+                2,
+                serde_json::to_value(TestAggregate {
+                    id: id.clone(),
+                    description: "a test description that should be saved".to_string(),
+                    tests: test_tests.clone(),
+                })
+                .unwrap()
+            )),
+            snapshot
+        );
+
+        // sequence out of order or not iterated, does not update
+        let result = repo
+            .update_snapshot::<TestAggregate>(
+                serde_json::to_value(TestAggregate {
+                    id: id.clone(),
+                    description: "a test description that should not be saved".to_string(),
+                    tests: test_tests.clone(),
+                })
+                .unwrap(),
+                id.clone(),
+                2,
+                &vec![],
+            )
+            .await
+            .unwrap_err();
+        match result {
+            DynamoAggregateError::OptimisticLock => {}
+            _ => panic!("invalid error result found during insert: {}", result),
+        };
+
+        let snapshot = repo.get_snapshot::<TestAggregate>(&id).await.unwrap();
+        assert_eq!(
+            Some(snapshot_context(
+                id.clone(),
+                0,
+                2,
+                serde_json::to_value(TestAggregate {
+                    id: id.clone(),
+                    description: "a test description that should be saved".to_string(),
+                    tests: test_tests.clone(),
+                })
+                .unwrap()
+            )),
+            snapshot
+        );
     }
 }

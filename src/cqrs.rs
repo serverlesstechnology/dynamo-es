@@ -25,12 +25,11 @@ mod test {
 
     use crate::cqrs::dynamodb_cqrs;
     use crate::testing::tests::{test_dynamodb_client, TestQueryRepository};
-    use crate::{DynamoEventRepository, DynamoViewRepository};
+    use crate::DynamoViewRepository;
 
     #[tokio::test]
     async fn test_valid_cqrs_framework() {
         let client = test_dynamodb_client().await;
-        let event_repo = DynamoEventRepository::new(client.clone());
         let view_repo = DynamoViewRepository::new("test_query", client.clone());
         let query = TestQueryRepository::new(view_repo);
         let _ps = dynamodb_cqrs(client, vec![Arc::new(query)]);
