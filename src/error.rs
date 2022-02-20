@@ -1,8 +1,8 @@
+use std::fmt::{Debug, Display, Formatter};
+
 use aws_sdk_dynamodb::error::TransactWriteItemsError;
 use aws_sdk_dynamodb::error::{QueryError, TransactWriteItemsErrorKind};
 use aws_sdk_dynamodb::SdkError;
-use std::fmt::{Debug, Display, Formatter};
-
 use cqrs_es::AggregateError;
 use persist_es::PersistenceError;
 
@@ -11,6 +11,7 @@ pub enum DynamoAggregateError {
     OptimisticLock,
     ConnectionError(Box<dyn std::error::Error + Send + Sync + 'static>),
     DeserializationError(Box<dyn std::error::Error + Send + Sync + 'static>),
+    TransactionListTooLong(usize),
     UnknownError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
@@ -21,6 +22,7 @@ impl Display for DynamoAggregateError {
             DynamoAggregateError::ConnectionError(msg) => write!(f, "{}", msg),
             DynamoAggregateError::DeserializationError(msg) => write!(f, "{}", msg),
             DynamoAggregateError::UnknownError(msg) => write!(f, "{}", msg),
+            DynamoAggregateError::TransactionListTooLong(length) => write!(f, "Too many operations: {}, DynamoDb supports only up to 25 operations per transactions", length),
         }
     }
 }
@@ -28,14 +30,17 @@ impl Display for DynamoAggregateError {
 impl std::error::Error for DynamoAggregateError {}
 
 impl<T: std::error::Error> From<DynamoAggregateError> for AggregateError<T> {
-    fn from(err: DynamoAggregateError) -> Self {
-        match err {
+    fn from(error: DynamoAggregateError) -> Self {
+        match error {
             DynamoAggregateError::OptimisticLock => AggregateError::AggregateConflict,
             DynamoAggregateError::ConnectionError(err) => {
                 AggregateError::DatabaseConnectionError(err)
             }
             DynamoAggregateError::DeserializationError(err) => {
                 AggregateError::DeserializationError(err)
+            }
+            DynamoAggregateError::TransactionListTooLong(_) => {
+                AggregateError::TechnicalError(Box::new(error))
             }
             DynamoAggregateError::UnknownError(err) => AggregateError::TechnicalError(err),
         }
@@ -87,12 +92,15 @@ impl From<SdkError<QueryError>> for DynamoAggregateError {
 }
 
 impl From<DynamoAggregateError> for PersistenceError {
-    fn from(err: DynamoAggregateError) -> Self {
-        match err {
+    fn from(error: DynamoAggregateError) -> Self {
+        match error {
             DynamoAggregateError::OptimisticLock => PersistenceError::OptimisticLockError,
             DynamoAggregateError::ConnectionError(err) => PersistenceError::ConnectionError(err),
             DynamoAggregateError::DeserializationError(err) => {
                 PersistenceError::DeserializationError(err)
+            }
+            DynamoAggregateError::TransactionListTooLong(_) => {
+                PersistenceError::UnknownError(Box::new(error))
             }
             DynamoAggregateError::UnknownError(err) => PersistenceError::UnknownError(err),
         }

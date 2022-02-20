@@ -1,4 +1,5 @@
-use crate::error::DynamoAggregateError;
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::output::QueryOutput;
@@ -6,7 +7,9 @@ use aws_sdk_dynamodb::{Blob, Client};
 use cqrs_es::Aggregate;
 use persist_es::{PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot};
 use serde_json::Value;
-use std::collections::HashMap;
+
+use crate::error::DynamoAggregateError;
+use crate::helpers::{att_as_number, att_as_string, att_as_value, commit_transactions};
 
 /// A snapshot backed event repository for use in backing a `PersistedSnapshotStore`.
 pub struct DynamoEventRepository {
@@ -17,6 +20,11 @@ const EVENT_TABLE: &str = "Events";
 const SNAPSHOT_TABLE: &str = "Snapshots";
 
 impl DynamoEventRepository {
+    /// Creates a new `DynamoEventRepository` from the provided database connection.
+    ///
+    /// ```ignore
+    /// let store = DynamoEventRepository::<MyAggregate>::new(client);
+    /// ```
     pub fn new(client: Client) -> Self {
         Self { client }
     }
@@ -26,11 +34,7 @@ impl DynamoEventRepository {
         events: &[SerializedEvent],
     ) -> Result<(), DynamoAggregateError> {
         let (transactions, _) = Self::build_event_put_transactions(events);
-        self.client
-            .transact_write_items()
-            .set_transact_items(Some(transactions))
-            .send()
-            .await?;
+        commit_transactions(&self.client, transactions).await?;
         Ok(())
     }
 
@@ -39,10 +43,8 @@ impl DynamoEventRepository {
         let mut transactions: Vec<TransactWriteItem> = Vec::default();
         for event in events {
             current_sequence = event.sequence;
-            let aggregate_type_and_id = AttributeValue::S(String::from(format!(
-                "{}:{}",
-                &event.aggregate_type, &event.aggregate_id
-            )));
+            let aggregate_type_and_id =
+                AttributeValue::S(format!("{}:{}", &event.aggregate_type, &event.aggregate_id));
             let aggregate_type = AttributeValue::S(String::from(&event.aggregate_type));
             let aggregate_id = AttributeValue::S(String::from(&event.aggregate_id));
             let sequence = AttributeValue::N(String::from(&event.sequence.to_string()));
@@ -97,18 +99,15 @@ impl DynamoEventRepository {
     ) -> Result<(), DynamoAggregateError> {
         let expected_snapshot = current_snapshot - 1;
         let (mut transactions, current_sequence) = Self::build_event_put_transactions(events);
-        let aggregate_type_and_id = AttributeValue::S(String::from(format!(
-            "{}:{}",
-            A::aggregate_type(),
-            &aggregate_id
-        )));
-        let aggregate_type = AttributeValue::S(String::from(A::aggregate_type()));
-        let aggregate_id = AttributeValue::S(String::from(aggregate_id));
-        let current_sequence = AttributeValue::N(String::from(current_sequence.to_string()));
-        let current_snapshot = AttributeValue::N(String::from(current_snapshot.to_string()));
+        let aggregate_type_and_id =
+            AttributeValue::S(format!("{}:{}", A::aggregate_type(), &aggregate_id));
+        let aggregate_type = AttributeValue::S(A::aggregate_type().to_string());
+        let aggregate_id = AttributeValue::S(aggregate_id);
+        let current_sequence = AttributeValue::N(current_sequence.to_string());
+        let current_snapshot = AttributeValue::N(current_snapshot.to_string());
         let payload_blob = serde_json::to_vec(&aggregate_payload).unwrap();
         let payload = AttributeValue::B(Blob::new(payload_blob));
-        let expected_snapshot = AttributeValue::N(String::from(expected_snapshot.to_string()));
+        let expected_snapshot = AttributeValue::N(expected_snapshot.to_string());
         transactions.push(TransactWriteItem::builder()
             .put(Put::builder()
                 .table_name(SNAPSHOT_TABLE)
@@ -119,14 +118,10 @@ impl DynamoEventRepository {
                 .item("CurrentSnapshot", current_snapshot)
                 .item("Payload", payload)
                 .condition_expression("attribute_not_exists(CurrentSnapshot) OR (CurrentSnapshot  = :current_snapshot)")
-                .expression_attribute_values(":current_snapshot",expected_snapshot)
+                .expression_attribute_values(":current_snapshot", expected_snapshot)
                 .build())
             .build());
-        self.client
-            .transact_write_items()
-            .set_transact_items(Some(transactions))
-            .send()
-            .await?;
+        commit_transactions(&self.client, transactions).await?;
         Ok(())
     }
 
@@ -170,20 +165,6 @@ fn serialized_event(entry: HashMap<String, AttributeValue>) -> SerializedEvent {
     }
 }
 
-fn att_as_value(attribute: Option<&AttributeValue>) -> Value {
-    let payload_blob = attribute.unwrap().as_b().unwrap();
-    let payload = serde_json::from_slice(payload_blob.clone().into_inner().as_slice()).unwrap();
-    payload
-}
-
-fn att_as_number(attribute: Option<&AttributeValue>) -> usize {
-    attribute.unwrap().as_n().unwrap().parse().unwrap()
-}
-
-fn att_as_string(attribute: Option<&AttributeValue>) -> String {
-    attribute.unwrap().as_s().unwrap().to_string()
-}
-
 #[async_trait]
 impl PersistedEventRepository for DynamoEventRepository {
     async fn get_events<A: Aggregate>(
@@ -213,11 +194,8 @@ impl PersistedEventRepository for DynamoEventRepository {
             None => return Ok(None),
             Some(items) => items,
         };
-        if query_items_vec.len() == 0 {
+        if query_items_vec.is_empty() {
             return Ok(None);
-        } else if query_items_vec.len() != 1 {
-            // return Err(DynamoAggregateError::UnknownError())
-            panic!()
         }
         let query_item = query_items_vec.get(0).unwrap();
         let aggregate = att_as_value(query_item.get("Payload"));
@@ -252,6 +230,9 @@ impl PersistedEventRepository for DynamoEventRepository {
 
 #[cfg(test)]
 mod test {
+    use cqrs_es::EventStore;
+    use persist_es::PersistedEventRepository;
+
     use crate::error::DynamoAggregateError;
     use crate::testing::tests::{
         new_test_event_store, new_test_metadata, new_test_snapshot_store, snapshot_context,
@@ -259,8 +240,6 @@ mod test {
         TestEvent, Tested,
     };
     use crate::DynamoEventRepository;
-    use cqrs_es::EventStore;
-    use persist_es::PersistedEventRepository;
 
     #[tokio::test]
     async fn commit_and_load_events() {
@@ -431,7 +410,7 @@ mod test {
                     description: test_description.clone(),
                     tests: test_tests.clone(),
                 })
-                .unwrap()
+                .unwrap(),
             )),
             snapshot
         );
@@ -462,7 +441,7 @@ mod test {
                     description: "a test description that should be saved".to_string(),
                     tests: test_tests.clone(),
                 })
-                .unwrap()
+                .unwrap(),
             )),
             snapshot
         );
@@ -498,7 +477,7 @@ mod test {
                     description: "a test description that should be saved".to_string(),
                     tests: test_tests.clone(),
                 })
-                .unwrap()
+                .unwrap(),
             )),
             snapshot
         );

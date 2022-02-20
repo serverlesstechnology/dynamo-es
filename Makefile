@@ -20,6 +20,15 @@ configure:
 		--billing-mode PAY_PER_REQUEST \
 		--endpoint-url http://localhost:8000
 
+	aws dynamodb create-table \
+		--table-name TestQuery \
+        --key-schema \
+        	AttributeName=QueryInstanceId,KeyType=HASH \
+		--attribute-definitions \
+        	AttributeName=QueryInstanceId,AttributeType=S \
+		--billing-mode PAY_PER_REQUEST \
+		--endpoint-url http://localhost:8000
+
 test: configure
 	cargo test
 
