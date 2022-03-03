@@ -3,8 +3,8 @@ use std::fmt::{Debug, Display, Formatter};
 use aws_sdk_dynamodb::error::TransactWriteItemsError;
 use aws_sdk_dynamodb::error::{QueryError, TransactWriteItemsErrorKind};
 use aws_sdk_dynamodb::SdkError;
+use cqrs_es::persist::PersistenceError;
 use cqrs_es::AggregateError;
-use persist_es::PersistenceError;
 
 #[derive(Debug)]
 pub enum DynamoAggregateError {

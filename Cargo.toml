@@ -11,8 +11,7 @@ documentation = "https://docs.rs/dynamo-es"
 readme = "README.md"
 
 [dependencies]
-cqrs-es = "0.2.5"
-persist-es = "0.2.5"
+cqrs-es = "0.2.6"
 
 aws-config = "0.3.0"
 aws-sdk-dynamodb = "0.3.0"
@@ -25,3 +24,6 @@ serde_json = "1.0"
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
 uuid = { version = "0.8.2", features = ["v4"]}
+
+[patch.crates-io]
+cqrs-es = { path = "../cqrs" }

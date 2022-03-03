@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::Blob;
+use cqrs_es::persist::{PersistenceError, QueryContext, ViewRepository};
 use cqrs_es::{Aggregate, View};
-use persist_es::{PersistenceError, QueryContext, ViewRepository};
 
 use crate::helpers::{att_as_number, att_as_value, commit_transactions, load_dynamo_view};
 
@@ -80,7 +80,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use persist_es::{QueryContext, ViewRepository};
+    use cqrs_es::persist::{QueryContext, ViewRepository};
 
     use crate::testing::tests::{
         test_dynamodb_client, Created, TestAggregate, TestEvent, TestView,

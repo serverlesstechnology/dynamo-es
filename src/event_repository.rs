@@ -4,8 +4,10 @@ use async_trait::async_trait;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::output::QueryOutput;
 use aws_sdk_dynamodb::{Blob, Client};
+use cqrs_es::persist::{
+    PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot,
+};
 use cqrs_es::Aggregate;
-use persist_es::{PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot};
 use serde_json::Value;
 
 use crate::error::DynamoAggregateError;
@@ -109,6 +111,34 @@ impl DynamoEventRepository {
         }
         Ok(result)
     }
+    async fn query_events_from(
+        &self,
+        aggregate_type: &str,
+        aggregate_id: &str,
+        last_sequence: usize,
+    ) -> Result<Vec<SerializedEvent>, DynamoAggregateError> {
+        let query_output = self
+            .client
+            .query()
+            .table_name(&self.event_table)
+            .key_condition_expression("#agg_type_id = :agg_type_id AND #sequence > :sequence")
+            .expression_attribute_names("#agg_type_id", "AggregateTypeAndId")
+            .expression_attribute_names("#sequence", "AggregateIdSequence")
+            .expression_attribute_values(
+                ":agg_type_id",
+                AttributeValue::S(format!("{}:{}", aggregate_type, aggregate_id)),
+            )
+            .expression_attribute_values(":sequence", AttributeValue::N(last_sequence.to_string()))
+            .send()
+            .await?;
+        let mut result: Vec<SerializedEvent> = Default::default();
+        if let Some(entries) = query_output.items {
+            for entry in entries {
+                result.push(serialized_event(entry));
+            }
+        }
+        Ok(result)
+    }
 
     pub(crate) async fn update_snapshot<A: Aggregate>(
         &self,
@@ -122,7 +152,7 @@ impl DynamoEventRepository {
             Self::build_event_put_transactions(&self.event_table, events);
         let aggregate_type_and_id =
             AttributeValue::S(format!("{}:{}", A::aggregate_type(), &aggregate_id));
-        let aggregate_type = AttributeValue::S(A::aggregate_type().to_string());
+        let aggregate_type = AttributeValue::S(A::aggregate_type());
         let aggregate_id = AttributeValue::S(aggregate_id);
         let current_sequence = AttributeValue::N(current_sequence.to_string());
         let current_snapshot = AttributeValue::N(current_snapshot.to_string());
@@ -192,16 +222,20 @@ impl PersistedEventRepository for DynamoEventRepository {
         &self,
         aggregate_id: &str,
     ) -> Result<Vec<SerializedEvent>, PersistenceError> {
-        let request = self.query_events(A::aggregate_type(), aggregate_id).await?;
+        let request = self
+            .query_events(&A::aggregate_type(), aggregate_id)
+            .await?;
         Ok(request)
     }
 
     async fn get_last_events<A: Aggregate>(
         &self,
-        _aggregate_id: &str,
-        _number_events: usize,
+        aggregate_id: &str,
+        number_events: usize,
     ) -> Result<Vec<SerializedEvent>, PersistenceError> {
-        todo!()
+        Ok(self
+            .query_events_from(&A::aggregate_type(), aggregate_id, number_events)
+            .await?)
     }
 
     async fn get_snapshot<A: Aggregate>(
@@ -209,7 +243,7 @@ impl PersistedEventRepository for DynamoEventRepository {
         aggregate_id: &str,
     ) -> Result<Option<SerializedSnapshot>, PersistenceError> {
         let query_output = self
-            .query_table(A::aggregate_type(), aggregate_id, &self.snapshot_table)
+            .query_table(&A::aggregate_type(), aggregate_id, &self.snapshot_table)
             .await?;
         let query_items_vec = match query_output.items {
             None => return Ok(None),
@@ -251,8 +285,8 @@ impl PersistedEventRepository for DynamoEventRepository {
 
 #[cfg(test)]
 mod test {
+    use cqrs_es::persist::PersistedEventRepository;
     use cqrs_es::EventStore;
-    use persist_es::PersistedEventRepository;
 
     use crate::error::DynamoAggregateError;
     use crate::testing::tests::{
@@ -267,8 +301,8 @@ mod test {
         let client = test_dynamodb_client().await;
         let event_store = new_test_event_store(client).await;
         let id = uuid::Uuid::new_v4().to_string();
-        assert_eq!(0, event_store.load(id.as_str()).await.len());
-        let context = event_store.load_aggregate(id.as_str()).await;
+        assert_eq!(0, event_store.load_events(id.as_str()).await.unwrap().len());
+        let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
         event_store
             .commit(
@@ -286,8 +320,8 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(2, event_store.load(id.as_str()).await.len());
-        let context = event_store.load_aggregate(id.as_str()).await;
+        assert_eq!(2, event_store.load_events(id.as_str()).await.unwrap().len());
+        let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
         event_store
             .commit(
@@ -299,7 +333,7 @@ mod test {
             )
             .await
             .unwrap();
-        assert_eq!(3, event_store.load(id.as_str()).await.len());
+        assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
     }
 
     #[tokio::test]
@@ -307,8 +341,8 @@ mod test {
         let client = test_dynamodb_client().await;
         let event_store = new_test_snapshot_store(client).await;
         let id = uuid::Uuid::new_v4().to_string();
-        assert_eq!(0, event_store.load(id.as_str()).await.len());
-        let context = event_store.load_aggregate(id.as_str()).await;
+        assert_eq!(0, event_store.load_events(id.as_str()).await.unwrap().len());
+        let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
         event_store
             .commit(
@@ -326,8 +360,8 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(2, event_store.load(id.as_str()).await.len());
-        let context = event_store.load_aggregate(id.as_str()).await;
+        assert_eq!(2, event_store.load_events(id.as_str()).await.unwrap().len());
+        let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
         event_store
             .commit(
@@ -339,7 +373,7 @@ mod test {
             )
             .await
             .unwrap();
-        assert_eq!(3, event_store.load(id.as_str()).await.len());
+        assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
     }
 
     #[tokio::test]
@@ -394,6 +428,12 @@ mod test {
 
         let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
         assert_eq!(2, events.len());
+
+        let events = event_repo
+            .get_last_events::<TestAggregate>(&id, 1)
+            .await
+            .unwrap();
+        assert_eq!(1, events.len());
     }
 
     #[tokio::test]

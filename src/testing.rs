@@ -2,13 +2,14 @@
 pub(crate) mod tests {
     use std::collections::HashMap;
 
+    use async_trait::async_trait;
     use aws_sdk_dynamodb::{Client, Credentials, Region};
+    use cqrs_es::persist::{
+        GenericQuery, PersistedEventRepository, PersistedEventStore, SerializedEvent,
+        SerializedSnapshot, SourceOfTruth,
+    };
     use cqrs_es::{
         Aggregate, AggregateError, DomainEvent, EventEnvelope, EventStore, UserErrorPayload, View,
-    };
-    use persist_es::{
-        GenericQuery, PersistedEventStore, PersistedSnapshotStore, SerializedEvent,
-        SerializedSnapshot,
     };
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
@@ -22,16 +23,17 @@ pub(crate) mod tests {
         pub(crate) tests: Vec<String>,
     }
 
+    #[async_trait]
     impl Aggregate for TestAggregate {
         type Command = TestCommand;
         type Event = TestEvent;
         type Error = UserErrorPayload;
 
-        fn aggregate_type() -> &'static str {
-            "TestAggregate"
+        fn aggregate_type() -> String {
+            "TestAggregate".to_string()
         }
 
-        fn handle(
+        async fn handle(
             &self,
             _command: Self::Command,
         ) -> Result<Vec<Self::Event>, AggregateError<UserErrorPayload>> {
@@ -74,16 +76,16 @@ pub(crate) mod tests {
     }
 
     impl DomainEvent for TestEvent {
-        fn event_type(&self) -> &'static str {
+        fn event_type(&self) -> String {
             match self {
-                TestEvent::Created(_) => "Created",
-                TestEvent::Tested(_) => "Tested",
-                TestEvent::SomethingElse(_) => "SomethingElse",
+                TestEvent::Created(_) => "Created".to_string(),
+                TestEvent::Tested(_) => "Tested".to_string(),
+                TestEvent::SomethingElse(_) => "SomethingElse".to_string(),
             }
         }
 
-        fn event_version(&self) -> &'static str {
-            "1.0"
+        fn event_version(&self) -> String {
+            "1.0".to_string()
         }
     }
 
@@ -125,9 +127,10 @@ pub(crate) mod tests {
 
     pub(crate) async fn new_test_snapshot_store(
         client: Client,
-    ) -> PersistedSnapshotStore<DynamoEventRepository, TestAggregate> {
+    ) -> PersistedEventStore<DynamoEventRepository, TestAggregate> {
         let repo = DynamoEventRepository::new(client);
-        PersistedSnapshotStore::<DynamoEventRepository, TestAggregate>::new(repo)
+        PersistedEventStore::<DynamoEventRepository, TestAggregate>::new(repo)
+            .with_storage_method(SourceOfTruth::AggregateStore)
     }
 
     pub(crate) fn new_test_metadata() -> HashMap<String, String> {
@@ -153,6 +156,7 @@ pub(crate) mod tests {
             metadata: Default::default(),
         }
     }
+
     pub(crate) fn snapshot_context(
         aggregate_id: String,
         current_sequence: usize,
@@ -172,8 +176,8 @@ pub(crate) mod tests {
         let client = test_dynamodb_client().await;
         let event_store = new_test_event_store(client).await;
         let id = uuid::Uuid::new_v4().to_string();
-        assert_eq!(0, event_store.load(id.as_str()).await.len());
-        let context = event_store.load_aggregate(id.as_str()).await;
+        assert_eq!(0, event_store.load_events(id.as_str()).await.unwrap().len());
+        let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
         event_store
             .commit(
@@ -191,8 +195,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(2, event_store.load(id.as_str()).await.len());
-        let context = event_store.load_aggregate(id.as_str()).await;
+        assert_eq!(2, event_store.load_events(id.as_str()).await.unwrap().len());
+        let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
         event_store
             .commit(
@@ -204,55 +208,54 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(3, event_store.load(id.as_str()).await.len());
+        assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
     }
 
-    // #[tokio::test]
-    // async fn event_repositories() {
-    //     let client = test_dynamodb_client().await;
-    //     let id = uuid::Uuid::new_v4().to_string();
-    //     let event_repo = DynamoEventRepository::new(client.clone());
-    //     let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
-    //     assert!(events.is_empty());
-    //
-    //     event_repo
-    //         .insert_events::<TestAggregate>(&[
-    //             test_event_envelope(&id, 1, TestEvent::Created(Created { id: id.clone() })),
-    //             test_event_envelope(
-    //                 &id,
-    //                 2,
-    //                 TestEvent::Tested(Tested {
-    //                     test_name: "a test was run".to_string(),
-    //                 }),
-    //             ),
-    //         ])
-    //         .await
-    //         .unwrap();
-    //     let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
-    //     assert_eq!(2, events.len());
-    //     events.iter().for_each(|e| assert_eq!(&id, &e.aggregate_id));
-    //
-    //     event_repo
-    //         .insert_events::<TestAggregate>(&[
-    //             test_event_envelope(
-    //                 &id,
-    //                 3,
-    //                 TestEvent::SomethingElse(SomethingElse {
-    //                     description: "this should not persist".to_string(),
-    //                 }),
-    //             ),
-    //             test_event_envelope(
-    //                 &id,
-    //                 2,
-    //                 TestEvent::SomethingElse(SomethingElse {
-    //                     description: "bad sequence number".to_string(),
-    //                 }),
-    //             ),
-    //         ])
-    //         .await
-    //         .unwrap_err();
-    //     let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
-    //     assert_eq!(2, events.len());
-    //
-    // }
+    #[tokio::test]
+    async fn event_repositories() {
+        let client = test_dynamodb_client().await;
+        let id = uuid::Uuid::new_v4().to_string();
+        let event_repo = DynamoEventRepository::new(client.clone());
+        let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
+        assert!(events.is_empty());
+
+        event_repo
+            .insert_events::<TestAggregate>(&[
+                test_event_envelope(&id, 1, TestEvent::Created(Created { id: id.clone() })),
+                test_event_envelope(
+                    &id,
+                    2,
+                    TestEvent::Tested(Tested {
+                        test_name: "a test was run".to_string(),
+                    }),
+                ),
+            ])
+            .await
+            .unwrap();
+        let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
+        assert_eq!(2, events.len());
+        events.iter().for_each(|e| assert_eq!(&id, &e.aggregate_id));
+
+        event_repo
+            .insert_events::<TestAggregate>(&[
+                test_event_envelope(
+                    &id,
+                    3,
+                    TestEvent::SomethingElse(SomethingElse {
+                        description: "this should not persist".to_string(),
+                    }),
+                ),
+                test_event_envelope(
+                    &id,
+                    2,
+                    TestEvent::SomethingElse(SomethingElse {
+                        description: "bad sequence number".to_string(),
+                    }),
+                ),
+            ])
+            .await
+            .unwrap_err();
+        let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
+        assert_eq!(2, events.len());
+    }
 }

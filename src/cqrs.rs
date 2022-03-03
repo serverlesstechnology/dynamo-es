@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use cqrs_es::persist::PersistedEventStore;
 use cqrs_es::{Aggregate, CqrsFramework, Query};
-use persist_es::PersistedEventStore;
 
 use crate::{DynamoCqrs, DynamoEventRepository};
 
