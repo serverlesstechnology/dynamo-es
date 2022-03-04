@@ -49,7 +49,14 @@ where
             None => return Ok(None),
             Some(items) => items,
         };
-        let query_item = query_items.get(0).expect("only one query item");
+        let query_item = match query_items.get(0) {
+            None => {
+                let view = V::default();
+                let context = QueryContext::new(query_instance_id.to_string(), 0);
+                return Ok(Some((view, context)))
+            }
+            Some(item) => item,
+        };
         let version = att_as_number(query_item.get("ViewVersion"));
         let payload = att_as_value(query_item.get("Payload"));
         let view: V = serde_json::from_value(payload)?;

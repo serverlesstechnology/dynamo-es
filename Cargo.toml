@@ -1,27 +1,26 @@
 [package]
 name = "dynamo-es"
-version = "0.0.1"
+version = "0.3.0"
 authors = ["Dave Garred <dave.garred@serverlesstechnology.com>"]
 edition = "2021"
-license-file = "LICENSE"
+license = "Apache-2.0"
 keywords = ["cqrs", "event-sourcing", "serverless"]
-description = "A DynamoDB implementation of an event store for cqrs-es."
+description = "A DynamoDB implementation of an event repository for cqrs-es."
 repository = "https://github.com/serverlesstechnology/dynamo-es"
 documentation = "https://docs.rs/dynamo-es"
 readme = "README.md"
 
 [dependencies]
-cqrs-es = "0.2.6"
-
-aws-config = "0.3.0"
-aws-sdk-dynamodb = "0.3.0"
+cqrs-es = "0.3.0"
 
 async-trait = "0.1.52"
-futures = "0.3.17"
+aws-sdk-dynamodb = "0.3.0"
+futures = "0.3.21"
 serde = { version = "1.0", features = ["derive"]}
 serde_json = "1.0"
 
 [dev-dependencies]
+aws-config = "0.3.0"
 tokio = { version = "1", features = ["macros", "rt"] }
 uuid = { version = "0.8.2", features = ["v4"]}
 

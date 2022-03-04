@@ -6,7 +6,7 @@
 //!
 //! > A DynamoDb implementation of the `EventStore` trait in [cqrs-es](https://crates.io/crates/persist-es).
 //!
-pub use crate::cqrs::dynamodb_cqrs;
+pub use crate::cqrs::*;
 pub use crate::event_repository::*;
 pub use crate::query_repository::*;
 pub use crate::types::*;

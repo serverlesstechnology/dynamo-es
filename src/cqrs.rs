@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cqrs_es::persist::PersistedEventStore;
+use cqrs_es::persist::{PersistedEventStore, SourceOfTruth};
 use cqrs_es::{Aggregate, CqrsFramework, Query};
 
 use crate::{DynamoCqrs, DynamoEventRepository};
@@ -16,6 +16,33 @@ where
 {
     let repo = DynamoEventRepository::new(dynamo_client);
     let store = PersistedEventStore::new(repo);
+    CqrsFramework::new(store, query_processor)
+}
+
+/// A convenience function for creating a CqrsFramework using an aggregate store.
+pub fn dynamodb_aggregate_cqrs<A>(
+    dynamo_client: aws_sdk_dynamodb::client::Client,
+    query_processor: Vec<Arc<dyn Query<A>>>,
+) -> DynamoCqrs<A>
+where
+    A: Aggregate,
+{
+    let repo = DynamoEventRepository::new(dynamo_client);
+    let store = PersistedEventStore::new(repo).with_storage_method(SourceOfTruth::AggregateStore);
+    CqrsFramework::new(store, query_processor)
+}
+
+/// A convenience function for creating a CqrsFramework using a snapshot store.
+pub fn dynamodb_snapshot_cqrs<A>(
+    dynamo_client: aws_sdk_dynamodb::client::Client,
+    query_processor: Vec<Arc<dyn Query<A>>>,
+    snapshot_size: usize,
+) -> DynamoCqrs<A>
+where
+    A: Aggregate,
+{
+    let repo = DynamoEventRepository::new(dynamo_client);
+    let store = PersistedEventStore::new(repo).with_storage_method(SourceOfTruth::Snapshot(snapshot_size));
     CqrsFramework::new(store, query_processor)
 }
 
