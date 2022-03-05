@@ -40,9 +40,9 @@ impl<T: std::error::Error> From<DynamoAggregateError> for AggregateError<T> {
                 AggregateError::DeserializationError(err)
             }
             DynamoAggregateError::TransactionListTooLong(_) => {
-                AggregateError::TechnicalError(Box::new(error))
+                AggregateError::UnexpectedError(Box::new(error))
             }
-            DynamoAggregateError::UnknownError(err) => AggregateError::TechnicalError(err),
+            DynamoAggregateError::UnknownError(err) => AggregateError::UnexpectedError(err),
         }
     }
 }

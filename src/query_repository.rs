@@ -39,12 +39,8 @@ where
     V: View<A>,
     A: Aggregate,
 {
-    async fn load(
-        &self,
-        query_instance_id: &str,
-    ) -> Result<Option<(V, QueryContext)>, PersistenceError> {
-        let query_result =
-            load_dynamo_view(&self.client, &self.query_name, query_instance_id).await?;
+    async fn load(&self, view_id: &str) -> Result<Option<(V, QueryContext)>, PersistenceError> {
+        let query_result = load_dynamo_view(&self.client, &self.query_name, view_id).await?;
         let query_items = match query_result.items {
             None => return Ok(None),
             Some(items) => items,
@@ -52,20 +48,20 @@ where
         let query_item = match query_items.get(0) {
             None => {
                 let view = V::default();
-                let context = QueryContext::new(query_instance_id.to_string(), 0);
-                return Ok(Some((view, context)))
+                let context = QueryContext::new(view_id.to_string(), 0);
+                return Ok(Some((view, context)));
             }
             Some(item) => item,
         };
         let version = att_as_number(query_item.get("ViewVersion"));
         let payload = att_as_value(query_item.get("Payload"));
         let view: V = serde_json::from_value(payload)?;
-        let context = QueryContext::new(query_instance_id.to_string(), version as i64);
+        let context = QueryContext::new(view_id.to_string(), version as i64);
         Ok(Some((view, context)))
     }
 
     async fn update_view(&self, view: V, context: QueryContext) -> Result<(), PersistenceError> {
-        let query_instance_id = AttributeValue::S(String::from(&context.view_instance_id));
+        let view_id = AttributeValue::S(String::from(&context.view_instance_id));
         let expected_view_version = AttributeValue::N(context.version.to_string());
         let view_version = AttributeValue::N((context.version + 1).to_string());
         let payload_blob = serde_json::to_vec(&view).unwrap();
@@ -73,7 +69,7 @@ where
         let transaction = TransactWriteItem::builder()
             .put(Put::builder()
                 .table_name(&self.query_name)
-                .item("QueryInstanceId", query_instance_id)
+                .item("ViewId", view_id)
                 .item("ViewVersion", view_version)
                 .item("Payload", payload)
                 .condition_expression("attribute_not_exists(ViewVersion) OR (ViewVersion  = :expected_view_version)")

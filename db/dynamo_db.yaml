@@ -36,10 +36,10 @@ Resources:
     Properties:
       AttributeDefinitions:
         -
-          AttributeName: "QueryInstanceId"
+          AttributeName: "ViewId"
           AttributeType: "S"
       KeySchema:
         -
-          AttributeName: "QueryInstanceId"
+          AttributeName: "ViewId"
           KeyType: "HASH"
       BillingMode: PAY_PER_REQUEST

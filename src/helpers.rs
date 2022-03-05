@@ -14,7 +14,7 @@ pub(crate) async fn load_dynamo_view(
         .query()
         .table_name(table_name)
         .key_condition_expression("#view_type_id = :view_type_id")
-        .expression_attribute_names("#view_type_id", "QueryInstanceId")
+        .expression_attribute_names("#view_type_id", "ViewId")
         .expression_attribute_values(":view_type_id", AttributeValue::S(String::from(view_id)))
         .send()
         .await?)

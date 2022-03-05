@@ -42,7 +42,8 @@ where
     A: Aggregate,
 {
     let repo = DynamoEventRepository::new(dynamo_client);
-    let store = PersistedEventStore::new(repo).with_storage_method(SourceOfTruth::Snapshot(snapshot_size));
+    let store =
+        PersistedEventStore::new(repo).with_storage_method(SourceOfTruth::Snapshot(snapshot_size));
     CqrsFramework::new(store, query_processor)
 }
 
