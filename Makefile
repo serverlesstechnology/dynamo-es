@@ -29,6 +29,11 @@ configure:
 		--billing-mode PAY_PER_REQUEST \
 		--endpoint-url http://localhost:8000
 
+	aws dynamodb put-item \
+		--table-name Events \
+        --item file://db/upcast_test_entry.json \
+        --endpoint-url http://localhost:8000
+
 test: configure
 	cargo test
 

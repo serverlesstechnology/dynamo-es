@@ -6,7 +6,7 @@ pub(crate) mod tests {
     use aws_sdk_dynamodb::{Client, Credentials, Region};
     use cqrs_es::persist::{
         GenericQuery, PersistedEventRepository, PersistedEventStore, SerializedEvent,
-        SerializedSnapshot, SourceOfTruth,
+        SerializedSnapshot,
     };
     use cqrs_es::{
         Aggregate, AggregateError, DomainEvent, EventEnvelope, EventStore, UserErrorPayload, View,
@@ -123,14 +123,6 @@ pub(crate) mod tests {
     ) -> PersistedEventStore<DynamoEventRepository, TestAggregate> {
         let repo = DynamoEventRepository::new(client);
         PersistedEventStore::<DynamoEventRepository, TestAggregate>::new(repo)
-    }
-
-    pub(crate) async fn new_test_snapshot_store(
-        client: Client,
-    ) -> PersistedEventStore<DynamoEventRepository, TestAggregate> {
-        let repo = DynamoEventRepository::new(client);
-        PersistedEventStore::<DynamoEventRepository, TestAggregate>::new(repo)
-            .with_storage_method(SourceOfTruth::AggregateStore)
     }
 
     pub(crate) fn new_test_metadata() -> HashMap<String, String> {
