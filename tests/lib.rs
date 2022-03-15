@@ -1,6 +1,6 @@
 use aws_sdk_dynamodb::{Client, Credentials, Region};
 use cqrs_es::doc::{Customer, CustomerEvent};
-use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster, SourceOfTruth};
+use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster};
 use cqrs_es::EventStore;
 use dynamo_es::DynamoEventRepository;
 use serde_json::Value;
@@ -22,14 +22,14 @@ pub(crate) async fn new_test_event_store(
     client: Client,
 ) -> PersistedEventStore<DynamoEventRepository, Customer> {
     let repo = DynamoEventRepository::new(client);
-    PersistedEventStore::<DynamoEventRepository, Customer>::new(repo)
+    PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo)
 }
 
 #[tokio::test]
 async fn commit_and_load_events() {
     let client = test_dynamodb_client().await;
     let repo = DynamoEventRepository::new(client);
-    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new(repo);
+    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo);
 
     simple_es_commit_and_load_test(event_store).await;
 }
@@ -38,8 +38,8 @@ async fn commit_and_load_events() {
 async fn commit_and_load_events_snapshot_store() {
     let client = test_dynamodb_client().await;
     let repo = DynamoEventRepository::new(client);
-    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new(repo)
-        .with_storage_method(SourceOfTruth::AggregateStore);
+    let event_store =
+        PersistedEventStore::<DynamoEventRepository, Customer>::new_aggregate_store(repo);
 
     simple_es_commit_and_load_test(event_store).await;
 }

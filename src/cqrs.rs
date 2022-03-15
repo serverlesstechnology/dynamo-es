@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cqrs_es::persist::{PersistedEventStore, SourceOfTruth};
+use cqrs_es::persist::PersistedEventStore;
 use cqrs_es::{Aggregate, CqrsFramework, Query};
 
 use crate::{DynamoCqrs, DynamoEventRepository};
@@ -15,7 +15,7 @@ where
     A: Aggregate,
 {
     let repo = DynamoEventRepository::new(dynamo_client);
-    let store = PersistedEventStore::new(repo);
+    let store = PersistedEventStore::new_event_store(repo);
     CqrsFramework::new(store, query_processor)
 }
 
@@ -28,7 +28,7 @@ where
     A: Aggregate,
 {
     let repo = DynamoEventRepository::new(dynamo_client);
-    let store = PersistedEventStore::new(repo).with_storage_method(SourceOfTruth::AggregateStore);
+    let store = PersistedEventStore::new_aggregate_store(repo);
     CqrsFramework::new(store, query_processor)
 }
 
@@ -42,8 +42,7 @@ where
     A: Aggregate,
 {
     let repo = DynamoEventRepository::new(dynamo_client);
-    let store =
-        PersistedEventStore::new(repo).with_storage_method(SourceOfTruth::Snapshot(snapshot_size));
+    let store = PersistedEventStore::new_snapshot_store(repo, snapshot_size);
     CqrsFramework::new(store, query_processor)
 }
 

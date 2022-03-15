@@ -122,7 +122,7 @@ pub(crate) mod tests {
         client: Client,
     ) -> PersistedEventStore<DynamoEventRepository, TestAggregate> {
         let repo = DynamoEventRepository::new(client);
-        PersistedEventStore::<DynamoEventRepository, TestAggregate>::new(repo)
+        PersistedEventStore::<DynamoEventRepository, TestAggregate>::new_event_store(repo)
     }
 
     pub(crate) fn new_test_metadata() -> HashMap<String, String> {
