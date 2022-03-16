@@ -27,20 +27,34 @@ impl DynamoEventRepository {
     /// Creates a new `DynamoEventRepository` from the provided dynamo client using default
     /// table names.
     ///
-    /// ```ignore
-    /// let store = DynamoEventRepository::<MyAggregate>::new(client);
+    /// ```
+    /// use aws_sdk_dynamodb::Client;
+    /// use dynamo_es::DynamoEventRepository;
+    ///
+    /// fn configure_repo(client: Client) -> DynamoEventRepository {
+    ///     DynamoEventRepository::new(client)
+    /// }
     /// ```
     pub fn new(client: Client) -> Self {
-        Self::new_with_table_names(client, DEFAULT_EVENT_TABLE, DEFAULT_SNAPSHOT_TABLE)
+        Self::use_table_names(client, DEFAULT_EVENT_TABLE, DEFAULT_SNAPSHOT_TABLE)
     }
 
-    /// Creates a new `DynamoEventRepository` from the provided dynamo client and table names.
-    /// If snapshots are unused the snapshot table name can be left blank.
+    /// Configures a `DynamoEventRepository` to use the provided table names.
     ///
-    /// ```ignore
-    /// let store = DynamoEventRepository::<MyAggregate>::new_with_table_names(client,"MyEventTable","MySnapshotTable");
     /// ```
-    pub fn new_with_table_names(client: Client, event_table: &str, snapshot_table: &str) -> Self {
+    /// use aws_sdk_dynamodb::Client;
+    /// use dynamo_es::DynamoEventRepository;
+    ///
+    /// fn configure_repo(client: Client) -> DynamoEventRepository {
+    ///     let store = DynamoEventRepository::new(client);
+    ///     store.with_tables("my_event_table", "my_snapshot_table")
+    /// }
+    /// ```
+    pub fn with_tables(self, event_table: &str, snapshot_table: &str) -> Self {
+        Self::use_table_names(self.client, event_table, snapshot_table)
+    }
+
+    fn use_table_names(client: Client, event_table: &str, snapshot_table: &str) -> Self {
         Self {
             client,
             event_table: event_table.to_string(),

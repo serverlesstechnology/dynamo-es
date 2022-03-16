@@ -8,10 +8,10 @@ use cqrs_es::{Aggregate, View};
 
 use crate::helpers::{att_as_number, att_as_value, commit_transactions, load_dynamo_view};
 
-/// A DynamoDb backed query repository for use in backing a `GenericQuery`.
+/// A DynamoDb backed view repository for use in backing a `GenericQuery`.
 pub struct DynamoViewRepository<V, A> {
     _phantom: PhantomData<(V, A)>,
-    query_name: String,
+    view_name: String,
     client: aws_sdk_dynamodb::client::Client,
 }
 
@@ -21,13 +21,24 @@ where
     A: Aggregate,
 {
     /// Creates a new `DynamoViewRepository` that will store serialized views in a DynamoDb table named
-    /// identically to the `query_name` value provided. This table should be created by the user
+    /// identically to the `view_name` value provided. This table should be created by the user
     /// before using this query repository (see `Makefile` for `create-table` command
     /// line example).
-    pub fn new(query_name: &str, client: aws_sdk_dynamodb::client::Client) -> Self {
+    ///
+    /// ```
+    /// # use cqrs_es::doc::MyAggregate;
+    /// # use cqrs_es::persist::doc::MyView;
+    /// use aws_sdk_dynamodb::Client;
+    /// use dynamo_es::DynamoViewRepository;
+    ///
+    /// fn configure_view_repo(client: Client) -> DynamoViewRepository<MyView,MyAggregate> {
+    ///     DynamoViewRepository::new("my_view_table", client)
+    /// }
+    /// ```
+    pub fn new(view_name: &str, client: aws_sdk_dynamodb::client::Client) -> Self {
         Self {
             _phantom: Default::default(),
-            query_name: query_name.to_string(),
+            view_name: view_name.to_string(),
             client,
         }
     }
@@ -40,7 +51,7 @@ where
     A: Aggregate,
 {
     async fn load(&self, view_id: &str) -> Result<Option<(V, QueryContext)>, PersistenceError> {
-        let query_result = load_dynamo_view(&self.client, &self.query_name, view_id).await?;
+        let query_result = load_dynamo_view(&self.client, &self.view_name, view_id).await?;
         let query_items = match query_result.items {
             None => return Ok(None),
             Some(items) => items,
@@ -68,7 +79,7 @@ where
         let payload = AttributeValue::B(Blob::new(payload_blob));
         let transaction = TransactWriteItem::builder()
             .put(Put::builder()
-                .table_name(&self.query_name)
+                .table_name(&self.view_name)
                 .item("ViewId", view_id)
                 .item("ViewVersion", view_version)
                 .item("Payload", payload)
