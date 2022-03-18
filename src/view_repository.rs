@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::Blob;
-use cqrs_es::persist::{PersistenceError, QueryContext, ViewRepository};
+use cqrs_es::persist::{PersistenceError, ViewContext, ViewRepository};
 use cqrs_es::{Aggregate, View};
 
 use crate::helpers::{att_as_number, att_as_value, commit_transactions, load_dynamo_view};
@@ -50,7 +50,25 @@ where
     V: View<A>,
     A: Aggregate,
 {
-    async fn load(&self, view_id: &str) -> Result<Option<(V, QueryContext)>, PersistenceError> {
+    async fn load(&self, view_id: &str) -> Result<Option<V>, PersistenceError> {
+        let query_result = load_dynamo_view(&self.client, &self.view_name, view_id).await?;
+        let query_items = match query_result.items {
+            None => return Ok(None),
+            Some(items) => items,
+        };
+        let query_item = match query_items.get(0) {
+            None => return Ok(None),
+            Some(item) => item,
+        };
+        let payload = att_as_value(query_item.get("Payload"));
+        let view: V = serde_json::from_value(payload)?;
+        Ok(Some(view))
+    }
+
+    async fn load_with_context(
+        &self,
+        view_id: &str,
+    ) -> Result<Option<(V, ViewContext)>, PersistenceError> {
         let query_result = load_dynamo_view(&self.client, &self.view_name, view_id).await?;
         let query_items = match query_result.items {
             None => return Ok(None),
@@ -59,7 +77,7 @@ where
         let query_item = match query_items.get(0) {
             None => {
                 let view = V::default();
-                let context = QueryContext::new(view_id.to_string(), 0);
+                let context = ViewContext::new(view_id.to_string(), 0);
                 return Ok(Some((view, context)));
             }
             Some(item) => item,
@@ -67,11 +85,11 @@ where
         let version = att_as_number(query_item.get("ViewVersion"));
         let payload = att_as_value(query_item.get("Payload"));
         let view: V = serde_json::from_value(payload)?;
-        let context = QueryContext::new(view_id.to_string(), version as i64);
+        let context = ViewContext::new(view_id.to_string(), version as i64);
         Ok(Some((view, context)))
     }
 
-    async fn update_view(&self, view: V, context: QueryContext) -> Result<(), PersistenceError> {
+    async fn update_view(&self, view: V, context: ViewContext) -> Result<(), PersistenceError> {
         let view_id = AttributeValue::S(String::from(&context.view_instance_id));
         let expected_view_version = AttributeValue::N(context.version.to_string());
         let view_version = AttributeValue::N((context.version + 1).to_string());
@@ -94,7 +112,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use cqrs_es::persist::{QueryContext, ViewRepository};
+    use cqrs_es::persist::{ViewContext, ViewRepository};
 
     use crate::testing::tests::{
         test_dynamodb_client, Created, TestAggregate, TestEvent, TestView,
@@ -104,7 +122,7 @@ mod test {
     #[tokio::test]
     async fn test_valid_view_repository() {
         let repo = DynamoViewRepository::<TestView, TestAggregate>::new(
-            "TestQuery",
+            "TestViewTable",
             test_dynamodb_client().await,
         );
         let test_view_id = uuid::Uuid::new_v4().to_string();
@@ -114,10 +132,14 @@ mod test {
                 id: "just a test event for this view".to_string(),
             })],
         };
-        repo.update_view(view.clone(), QueryContext::new(test_view_id.to_string(), 0))
+        repo.update_view(view.clone(), ViewContext::new(test_view_id.to_string(), 0))
             .await
             .unwrap();
-        let (found, context) = repo.load(&test_view_id).await.unwrap().unwrap();
+        let (found, context) = repo
+            .load_with_context(&test_view_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(found, view);
 
         let updated_view = TestView {
@@ -129,7 +151,7 @@ mod test {
             .await
             .unwrap();
         let found_option = repo.load(&test_view_id).await.unwrap();
-        let found = found_option.unwrap().0;
+        let found = found_option.unwrap();
 
         assert_eq!(found, updated_view);
     }

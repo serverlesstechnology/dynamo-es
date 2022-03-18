@@ -21,7 +21,7 @@ configure:
 		--endpoint-url http://localhost:8000
 
 	aws dynamodb create-table \
-		--table-name TestQuery \
+		--table-name TestViewTable \
         --key-schema \
         	AttributeName=ViewId,KeyType=HASH \
 		--attribute-definitions \
