@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 use aws_sdk_dynamodb::error::TransactWriteItemsError;
 use aws_sdk_dynamodb::error::{QueryError, TransactWriteItemsErrorKind};
-use aws_sdk_dynamodb::SdkError;
+use aws_sdk_dynamodb::types::SdkError;
 use cqrs_es::persist::PersistenceError;
 use cqrs_es::AggregateError;
 

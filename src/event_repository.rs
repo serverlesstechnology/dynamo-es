@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::output::QueryOutput;
-use aws_sdk_dynamodb::{Blob, Client};
+use aws_sdk_dynamodb::types::Blob;
+use aws_sdk_dynamodb::Client;
 use cqrs_es::persist::{
     PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot,
 };
