@@ -1,6 +1,7 @@
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashMap;
+    use std::fmt::{Display, Formatter};
 
     use async_trait::async_trait;
     use aws_sdk_dynamodb::{Client, Credentials, Region};
@@ -8,9 +9,7 @@ pub(crate) mod tests {
         GenericQuery, PersistedEventRepository, PersistedEventStore, SerializedEvent,
         SerializedSnapshot,
     };
-    use cqrs_es::{
-        Aggregate, AggregateError, DomainEvent, EventEnvelope, EventStore, UserErrorPayload, View,
-    };
+    use cqrs_es::{Aggregate, AggregateError, DomainEvent, EventEnvelope, EventStore, View};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
@@ -27,7 +26,7 @@ pub(crate) mod tests {
     impl Aggregate for TestAggregate {
         type Command = TestCommand;
         type Event = TestEvent;
-        type Error = UserErrorPayload;
+        type Error = TestError;
 
         fn aggregate_type() -> String {
             "TestAggregate".to_string()
@@ -36,7 +35,7 @@ pub(crate) mod tests {
         async fn handle(
             &self,
             _command: Self::Command,
-        ) -> Result<Vec<Self::Event>, AggregateError<UserErrorPayload>> {
+        ) -> Result<Vec<Self::Event>, AggregateError<Self::Error>> {
             Ok(vec![])
         }
 
@@ -88,6 +87,17 @@ pub(crate) mod tests {
             "1.0".to_string()
         }
     }
+
+    #[derive(Debug, PartialEq)]
+    pub struct TestError(String);
+
+    impl Display for TestError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl std::error::Error for TestError {}
 
     pub enum TestCommand {}
 
