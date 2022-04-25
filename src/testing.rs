@@ -9,7 +9,7 @@ pub(crate) mod tests {
         GenericQuery, PersistedEventRepository, PersistedEventStore, SerializedEvent,
         SerializedSnapshot,
     };
-    use cqrs_es::{Aggregate, AggregateError, DomainEvent, EventEnvelope, EventStore, View};
+    use cqrs_es::{Aggregate, DomainEvent, EventEnvelope, EventStore, View};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
@@ -27,6 +27,7 @@ pub(crate) mod tests {
         type Command = TestCommand;
         type Event = TestEvent;
         type Error = TestError;
+        type Services = TestServices;
 
         fn aggregate_type() -> String {
             "TestAggregate".to_string()
@@ -35,7 +36,8 @@ pub(crate) mod tests {
         async fn handle(
             &self,
             _command: Self::Command,
-        ) -> Result<Vec<Self::Event>, AggregateError<Self::Error>> {
+            _services: &Self::Services,
+        ) -> Result<Vec<Self::Event>, Self::Error> {
             Ok(vec![])
         }
 
@@ -90,6 +92,8 @@ pub(crate) mod tests {
 
     #[derive(Debug, PartialEq)]
     pub struct TestError(String);
+
+    pub struct TestServices;
 
     impl Display for TestError {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
