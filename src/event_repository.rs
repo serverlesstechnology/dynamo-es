@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use aws_sdk_dynamodb::client::fluent_builders;
 use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::output::QueryOutput;
 use aws_sdk_dynamodb::types::Blob;
 use aws_sdk_dynamodb::Client;
 use cqrs_es::persist::{
-    PersistedEventRepository, PersistenceError, SerializedEvent, SerializedSnapshot,
+    PersistedEventRepository, PersistenceError, ReplayStream, SerializedEvent, SerializedSnapshot,
 };
 use cqrs_es::Aggregate;
 use serde_json::Value;
@@ -14,15 +15,18 @@ use serde_json::Value;
 use crate::error::DynamoAggregateError;
 use crate::helpers::{att_as_number, att_as_string, att_as_value, commit_transactions};
 
-/// A snapshot backed event repository for use in backing a `PersistedSnapshotStore`.
-pub struct DynamoEventRepository {
-    client: aws_sdk_dynamodb::client::Client,
-    event_table: String,
-    snapshot_table: String,
-}
-
 const DEFAULT_EVENT_TABLE: &str = "Events";
 const DEFAULT_SNAPSHOT_TABLE: &str = "Snapshots";
+
+const DEFAULT_STREAMING_CHANNEL_SIZE: usize = 200;
+
+/// An event repository relying on DynamoDb for persistence.
+pub struct DynamoEventRepository {
+    client: Client,
+    event_table: String,
+    snapshot_table: String,
+    stream_channel_size: usize,
+}
 
 impl DynamoEventRepository {
     /// Creates a new `DynamoEventRepository` from the provided dynamo client using default
@@ -39,9 +43,30 @@ impl DynamoEventRepository {
     pub fn new(client: Client) -> Self {
         Self::use_table_names(client, DEFAULT_EVENT_TABLE, DEFAULT_SNAPSHOT_TABLE)
     }
-
+    /// Configures a `DynamoEventRepository` to use a streaming queue of the provided size.
+    ///
+    /// _Example: configure the repository to stream with a 1000 event buffer._
+    /// ```
+    /// use aws_sdk_dynamodb::Client;
+    /// use dynamo_es::DynamoEventRepository;
+    ///
+    /// fn configure_repo(client: Client) -> DynamoEventRepository {
+    ///     let store = DynamoEventRepository::new(client);
+    ///     store.with_streaming_channel_size(1000)
+    /// }
+    /// ```
+    pub fn with_streaming_channel_size(self, stream_channel_size: usize) -> Self {
+        Self {
+            client: self.client,
+            event_table: self.event_table,
+            snapshot_table: self.snapshot_table,
+            stream_channel_size,
+        }
+    }
     /// Configures a `DynamoEventRepository` to use the provided table names.
     ///
+    /// _Example: configure the repository to use "my_event_table" and "my_snapshot_table"
+    /// for the event and snapshot table names._
     /// ```
     /// use aws_sdk_dynamodb::Client;
     /// use dynamo_es::DynamoEventRepository;
@@ -60,6 +85,7 @@ impl DynamoEventRepository {
             client,
             event_table: event_table.to_string(),
             snapshot_table: snapshot_table.to_string(),
+            stream_channel_size: DEFAULT_STREAMING_CHANNEL_SIZE,
         }
     }
 
@@ -197,18 +223,26 @@ impl DynamoEventRepository {
         aggregate_id: &str,
         table: &str,
     ) -> Result<QueryOutput, DynamoAggregateError> {
-        Ok(self
-            .client
+        let query = self.create_query(table, aggregate_type, aggregate_id).await;
+        Ok(query.send().await?)
+    }
+
+    async fn create_query(
+        &self,
+        table: &str,
+        aggregate_type: &str,
+        aggregate_id: &str,
+    ) -> fluent_builders::Query {
+        self.client
             .query()
             .table_name(table)
+            .consistent_read(true)
             .key_condition_expression("#agg_type_id = :agg_type_id")
             .expression_attribute_names("#agg_type_id", "AggregateTypeAndId")
             .expression_attribute_values(
                 ":agg_type_id",
                 AttributeValue::S(format!("{}:{}", aggregate_type, aggregate_id)),
             )
-            .send()
-            .await?)
     }
 }
 
@@ -298,6 +332,108 @@ impl PersistedEventRepository for DynamoEventRepository {
         }
         Ok(())
     }
+
+    async fn stream_events<A: Aggregate>(
+        &self,
+        aggregate_id: &str,
+    ) -> Result<ReplayStream, PersistenceError> {
+        let query = self
+            .create_query(&self.event_table, &A::aggregate_type(), aggregate_id)
+            .await
+            .limit(self.stream_channel_size as i32);
+        Ok(stream_events(query, self.stream_channel_size))
+    }
+
+    async fn stream_all_events<A: Aggregate>(&self) -> Result<ReplayStream, PersistenceError> {
+        let scan = self
+            .client
+            .scan()
+            .table_name(&self.event_table)
+            .limit(self.stream_channel_size as i32);
+        Ok(stream_all_events(scan, self.stream_channel_size))
+    }
+}
+
+// TODO: combine these two methods
+fn stream_events(base_query: fluent_builders::Query, channel_size: usize) -> ReplayStream {
+    let (mut feed, stream) = ReplayStream::new(channel_size);
+    tokio::spawn(async move {
+        let mut last_evaluated_key: Option<HashMap<String, AttributeValue>> = None;
+        loop {
+            let query = match &last_evaluated_key {
+                None => base_query.clone(),
+                Some(last) => {
+                    let mut query = base_query.clone();
+                    for (key, value) in last {
+                        query = query.exclusive_start_key(key.to_string(), value.to_owned());
+                    }
+                    query
+                }
+            };
+            match query.send().await {
+                Ok(query_output) => {
+                    last_evaluated_key = query_output.last_evaluated_key;
+                    if let Some(entries) = query_output.items {
+                        for entry in entries {
+                            let event = serialized_event(entry);
+                            if feed.push(Ok(event)).await.is_err() {
+                                //         TODO: in the unlikely event of a broken channel this error should be reported.
+                                return;
+                            };
+                        }
+                    };
+                }
+                Err(err) => {
+                    let err: DynamoAggregateError = err.into();
+                    if feed.push(Err(err.into())).await.is_err() {};
+                }
+            }
+            if last_evaluated_key.is_none() {
+                return;
+            }
+        }
+    });
+    stream
+}
+fn stream_all_events(base_query: fluent_builders::Scan, channel_size: usize) -> ReplayStream {
+    let (mut feed, stream) = ReplayStream::new(channel_size);
+    tokio::spawn(async move {
+        let mut last_evaluated_key: Option<HashMap<String, AttributeValue>> = None;
+        loop {
+            let query = match &last_evaluated_key {
+                None => base_query.clone(),
+                Some(last) => {
+                    let mut query = base_query.clone();
+                    for (key, value) in last {
+                        query = query.exclusive_start_key(key.to_string(), value.to_owned());
+                    }
+                    query
+                }
+            };
+            match query.send().await {
+                Ok(query_output) => {
+                    last_evaluated_key = query_output.last_evaluated_key;
+                    if let Some(entries) = query_output.items {
+                        for entry in entries {
+                            let event = serialized_event(entry);
+                            if feed.push(Ok(event)).await.is_err() {
+                                //         TODO: in the unlikely event of a broken channel this error should be reported.
+                                return;
+                            };
+                        }
+                    };
+                }
+                Err(err) => {
+                    let err: DynamoAggregateError = err.into();
+                    if feed.push(Err(err.into())).await.is_err() {};
+                }
+            }
+            if last_evaluated_key.is_none() {
+                return;
+            }
+        }
+    });
+    stream
 }
 
 #[cfg(test)]
@@ -315,7 +451,7 @@ mod test {
     async fn event_repositories() {
         let client = test_dynamodb_client().await;
         let id = uuid::Uuid::new_v4().to_string();
-        let event_repo = DynamoEventRepository::new(client.clone());
+        let event_repo = DynamoEventRepository::new(client.clone()).with_streaming_channel_size(1);
         let events = event_repo.get_events::<TestAggregate>(&id).await.unwrap();
         assert!(events.is_empty());
 
@@ -369,6 +505,30 @@ mod test {
             .await
             .unwrap();
         assert_eq!(1, events.len());
+
+        verify_replay_stream(&id, event_repo).await;
+    }
+
+    async fn verify_replay_stream(id: &str, event_repo: DynamoEventRepository) {
+        let mut stream = event_repo
+            .stream_events::<TestAggregate>(&id)
+            .await
+            .unwrap();
+        let mut found_in_stream = 0;
+        while let Some(_) = stream.next::<TestAggregate>().await {
+            found_in_stream += 1;
+        }
+        assert_eq!(found_in_stream, 2);
+
+        let mut stream = event_repo
+            .stream_all_events::<TestAggregate>()
+            .await
+            .unwrap();
+        let mut found_in_stream = 0;
+        while let Some(_) = stream.next::<TestAggregate>().await {
+            found_in_stream += 1;
+        }
+        assert!(found_in_stream >= 2);
     }
 
     #[tokio::test]

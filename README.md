@@ -1,9 +1,27 @@
 # dynamo-es
 
 > A DynamoDB implementation of the `PersistedEventRepository` trait in cqrs-es.
+### DynamoDb caveats
+AWS' DynamoDb is fast, flexible and highly available, but it does 
+[make some limitations](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ServiceQuotas.html)
+that must be considered in the design of your application.
+
+- Maximum limit of 25 operations in any transaction - Events are inserted in a single transaction, this means that a
+command can not produce more than 25 events using Event store, or 24 events if using Snapshot or Aggregate store.
+This is rare but if a command might produce more than this limit a different backing database should be used. 
+- Item size limit of 400 KB - An event should never reach this size, but it is possible that a serialized aggregate might.
+If this is possible for your use case beware of using Aggregate or Snapshot stores.
+- Maximum request size of 1 MB - This may have the same ramifications as the above for Aggregate or Snapshot stores.
+Additionally, large numbers of events may reach this threshold. 
+To prevent an error while loading or replaying events, 
+[set the streaming channel size](https://docs.rs/dynamo-es/0.4.2/dynamo_es/struct.DynamoEventRepository.html#method.with_streaming_channel_size)
+to a number that ensures you won't exceed this threshold.
+
+
+### Testing
 
 Requires access to DynamoDb with existing tables. This can be created locally using the included 
-`docker-compose.yml` file with CLI configuration of test tables included in the `Makefile`. 
+`docker-compose.yml` file with CLI configuration of test tables included in the `Makefile`.
 
 To prepare a local test environment (requires a local installation of 
 [Docker](https://www.docker.com/products/docker-desktop) and 

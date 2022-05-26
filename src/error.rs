@@ -1,10 +1,11 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use aws_sdk_dynamodb::error::TransactWriteItemsError;
 use aws_sdk_dynamodb::error::{QueryError, TransactWriteItemsErrorKind};
+use aws_sdk_dynamodb::error::{ScanError, TransactWriteItemsError};
 use aws_sdk_dynamodb::types::SdkError;
 use cqrs_es::persist::PersistenceError;
 use cqrs_es::AggregateError;
+use serde::de::StdError;
 
 #[derive(Debug)]
 pub enum DynamoAggregateError {
@@ -86,13 +87,23 @@ impl From<SdkError<TransactWriteItemsError>> for DynamoAggregateError {
 
 impl From<SdkError<QueryError>> for DynamoAggregateError {
     fn from(error: SdkError<QueryError>) -> Self {
-        match error {
-            SdkError::ConstructionFailure(err) => DynamoAggregateError::UnknownError(err),
-            SdkError::TimeoutError(err) => DynamoAggregateError::UnknownError(err),
-            SdkError::DispatchFailure(err) => DynamoAggregateError::UnknownError(Box::new(err)),
-            SdkError::ResponseError { err, .. } => DynamoAggregateError::UnknownError(err),
-            SdkError::ServiceError { err, .. } => DynamoAggregateError::UnknownError(Box::new(err)),
-        }
+        unknown_error(error)
+    }
+}
+
+impl From<SdkError<ScanError>> for DynamoAggregateError {
+    fn from(error: SdkError<ScanError>) -> Self {
+        unknown_error(error)
+    }
+}
+
+fn unknown_error<T: StdError + Send + Sync + 'static>(error: SdkError<T>) -> DynamoAggregateError {
+    match error {
+        SdkError::ConstructionFailure(err) => DynamoAggregateError::UnknownError(err),
+        SdkError::TimeoutError(err) => DynamoAggregateError::UnknownError(err),
+        SdkError::DispatchFailure(err) => DynamoAggregateError::UnknownError(Box::new(err)),
+        SdkError::ResponseError { err, .. } => DynamoAggregateError::UnknownError(err),
+        SdkError::ServiceError { err, .. } => DynamoAggregateError::UnknownError(Box::new(err)),
     }
 }
 
