@@ -30,15 +30,6 @@ aws dynamodb create-table \
 
 aws dynamodb put-item \
   --table-name Events \
-      --item '{
-                  "AggregateTypeAndId": {"S": "Customer:previous_event_in_need_of_upcast"},
-                  "AggregateIdSequence": {"N": "1"},
-                  "AggregateType": {"S": "Customer"},
-                  "AggregateId": {"S": "previous_event_in_need_of_upcast"},
-                  "EventVersion": {"S": "1.0"},
-                  "EventType": {"S": "NameAdded"},
-                  "Payload": {"B": "eyJOYW1lQWRkZWQiOiB7fX0="},
-                  "Metadata": {"B": "e30="}
-              }' \
+      --item file://db/upcast_test_entry.json \
       --endpoint-url http://localhost:8000
 

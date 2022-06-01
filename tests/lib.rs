@@ -1,6 +1,10 @@
+extern crate core;
+
 use aws_sdk_dynamodb::{Client, Credentials, Region};
 use cqrs_es::doc::{Customer, CustomerEvent};
-use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster};
+use cqrs_es::persist::{
+    PersistedEventStore, SemanticVersionEventUpcaster,
+};
 use cqrs_es::EventStore;
 use dynamo_es::DynamoEventRepository;
 use serde_json::Value;
@@ -102,7 +106,10 @@ async fn upcasted_event() {
         .with_upcasters(vec![Box::new(upcaster)]);
 
     let id = "previous_event_in_need_of_upcast".to_string();
-    let result = event_store.load_aggregate(id.as_str()).await.unwrap();
+    let result = match event_store.load_aggregate(id.as_str()).await {
+        Ok(result) => result,
+        Err(err) => panic!("Unexpected error during upcast: {}", err),
+    };
     assert_eq!(1, result.current_sequence);
     assert_eq!(None, result.current_snapshot);
 }
