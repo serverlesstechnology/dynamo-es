@@ -1,5 +1,7 @@
 extern crate core;
 
+use aws_sdk_dynamodb::model::AttributeValue;
+use aws_sdk_dynamodb::types::Blob;
 use aws_sdk_dynamodb::{Client, Credentials, Region};
 use cqrs_es::doc::{Customer, CustomerEvent};
 use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster};
@@ -88,15 +90,42 @@ async fn simple_es_commit_and_load_test(
 #[tokio::test]
 async fn upcasted_event() {
     let client = test_dynamodb_client().await;
+    client
+        .put_item()
+        .table_name("Events")
+        .item(
+            "AggregateTypeAndId",
+            AttributeValue::S("Customer:previous_event_in_need_of_upcast".to_string()),
+        )
+        .item("AggregateIdSequence", AttributeValue::N("1".to_string()))
+        .item("AggregateType", AttributeValue::S("Customer".to_string()))
+        .item(
+            "AggregateId",
+            AttributeValue::S("previous_event_in_need_of_upcast".to_string()),
+        )
+        .item("EventVersion", AttributeValue::S("1.0".to_string()))
+        .item("EventType", AttributeValue::S("NameAdded".to_string()))
+        .item(
+            "Payload",
+            AttributeValue::B(Blob::new("{\"NameAdded\": {}}".as_bytes())),
+        )
+        .item("Metadata", AttributeValue::B(Blob::new("{}".as_bytes())))
+        .send()
+        .await
+        .unwrap();
+
     let upcaster = SemanticVersionEventUpcaster::new(
         "NameAdded",
         "1.0.1",
-        Box::new(|mut event| match event.get_mut("NameAdded").unwrap() {
-            Value::Object(object) => {
-                object.insert("name".to_string(), Value::String("UNKNOWN".to_string()));
-                event
+        Box::new(|mut event| {
+            println!("{:?}", &event);
+            match event.get_mut("NameAdded").unwrap() {
+                Value::Object(object) => {
+                    object.insert("name".to_string(), Value::String("UNKNOWN".to_string()));
+                    event
+                }
+                _ => panic!("not the expected object"),
             }
-            _ => panic!("not the expected object"),
         }),
     );
     let event_store = new_test_event_store(client)
