@@ -5,6 +5,6 @@
     "AggregateId": {"S": "previous_event_in_need_of_upcast"},
     "EventVersion": {"S": "1.0"},
     "EventType": {"S": "NameAdded"},
-    "Payload": {"B": "eyJOYW1lQWRkZWQiOiB7fX0="},
-    "Metadata": {"B": "e30="}
+    "Payload": {"B": "{\"NameAdded\": {}}"},
+    "Metadata": {"B": "{}"}
 }
