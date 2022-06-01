@@ -2,6 +2,7 @@ use aws_sdk_dynamodb::client::Client;
 use aws_sdk_dynamodb::model::{AttributeValue, TransactWriteItem};
 use aws_sdk_dynamodb::output::QueryOutput;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::error::DynamoAggregateError;
 
@@ -38,16 +39,58 @@ pub(crate) async fn commit_transactions(
     Ok(())
 }
 
-pub(crate) fn att_as_value(attribute: Option<&AttributeValue>) -> Value {
-    let payload_blob = attribute.unwrap().as_b().unwrap();
-    let payload = serde_json::from_slice(payload_blob.clone().into_inner().as_slice()).unwrap();
-    payload
+pub(crate) fn att_as_value(
+    values: &HashMap<String, AttributeValue>,
+    attribute_name: &str,
+) -> Result<Value, DynamoAggregateError> {
+    let attribute = require_attribute(values, attribute_name)?;
+    match attribute.as_b() {
+        Ok(payload_blob) => Ok(serde_json::from_slice(payload_blob.as_ref())?),
+        Err(_) => Err(DynamoAggregateError::MissingAttribute(
+            attribute_name.to_string(),
+        )),
+    }
 }
 
-pub(crate) fn att_as_number(attribute: Option<&AttributeValue>) -> usize {
-    attribute.unwrap().as_n().unwrap().parse().unwrap()
+pub(crate) fn att_as_number(
+    values: &HashMap<String, AttributeValue>,
+    attribute_name: &str,
+) -> Result<usize, DynamoAggregateError> {
+    let attribute = require_attribute(values, attribute_name)?;
+    match attribute.as_n() {
+        Ok(attribute_as_n) => match attribute_as_n.parse::<usize>() {
+            Ok(attribute_number) => Ok(attribute_number),
+            Err(_) => Err(DynamoAggregateError::MissingAttribute(
+                attribute_name.to_string(),
+            )),
+        },
+        Err(_) => Err(DynamoAggregateError::MissingAttribute(
+            attribute_name.to_string(),
+        )),
+    }
 }
 
-pub(crate) fn att_as_string(attribute: Option<&AttributeValue>) -> String {
-    attribute.unwrap().as_s().unwrap().to_string()
+pub(crate) fn att_as_string(
+    values: &HashMap<String, AttributeValue>,
+    attribute_name: &str,
+) -> Result<String, DynamoAggregateError> {
+    let attribute = require_attribute(values, attribute_name)?;
+    match attribute.as_s() {
+        Ok(attribute_as_s) => Ok(attribute_as_s.to_string()),
+        Err(_) => Err(DynamoAggregateError::MissingAttribute(
+            attribute_name.to_string(),
+        )),
+    }
+}
+
+pub(crate) fn require_attribute<'a>(
+    values: &'a HashMap<String, AttributeValue>,
+    attribute_name: &str,
+) -> Result<&'a AttributeValue, DynamoAggregateError> {
+    match values.get(attribute_name) {
+        Some(attribute) => Ok(attribute),
+        None => Err(DynamoAggregateError::MissingAttribute(
+            attribute_name.to_string(),
+        )),
+    }
 }

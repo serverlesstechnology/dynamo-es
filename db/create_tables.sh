@@ -30,6 +30,10 @@ aws dynamodb create-table \
 
 aws dynamodb put-item \
   --table-name Events \
-      --item file://db/upcast_test_entry.json \
-      --endpoint-url http://localhost:8000
+  --item file://db/upcast_test_entry.json \
+  --endpoint-url http://localhost:8000
 
+aws dynamodb get-item \
+  --table-name Events \
+  --key '{"AggregateTypeAndId": {"S": "Customer:previous_event_in_need_of_upcast"}, "AggregateIdSequence": {"N": "1"}}' \
+  --endpoint-url http://localhost:8000

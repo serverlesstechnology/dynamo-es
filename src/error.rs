@@ -12,6 +12,7 @@ pub enum DynamoAggregateError {
     ConnectionError(Box<dyn std::error::Error + Send + Sync + 'static>),
     DeserializationError(Box<dyn std::error::Error + Send + Sync + 'static>),
     TransactionListTooLong(usize),
+    MissingAttribute(String),
     UnknownError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
@@ -19,6 +20,7 @@ impl Display for DynamoAggregateError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             DynamoAggregateError::OptimisticLock => write!(f, "optimistic lock error"),
+            DynamoAggregateError::MissingAttribute(attribute) => write!(f, "missing attribute: {}", attribute),
             DynamoAggregateError::ConnectionError(msg) => write!(f, "{}", msg),
             DynamoAggregateError::DeserializationError(msg) => write!(f, "{}", msg),
             DynamoAggregateError::UnknownError(msg) => write!(f, "{}", msg),
@@ -42,6 +44,9 @@ impl<T: std::error::Error> From<DynamoAggregateError> for AggregateError<T> {
             DynamoAggregateError::TransactionListTooLong(_) => {
                 AggregateError::UnexpectedError(Box::new(error))
             }
+            DynamoAggregateError::MissingAttribute(err) => AggregateError::UnexpectedError(
+                Box::new(DynamoAggregateError::MissingAttribute(err)),
+            ),
             DynamoAggregateError::UnknownError(err) => AggregateError::UnexpectedError(err),
         }
     }
@@ -102,6 +107,9 @@ impl From<DynamoAggregateError> for PersistenceError {
             DynamoAggregateError::TransactionListTooLong(_) => {
                 PersistenceError::UnknownError(Box::new(error))
             }
+            DynamoAggregateError::MissingAttribute(err) => PersistenceError::UnknownError(
+                Box::new(DynamoAggregateError::MissingAttribute(err)),
+            ),
             DynamoAggregateError::UnknownError(err) => PersistenceError::UnknownError(err),
         }
     }

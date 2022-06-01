@@ -121,7 +121,7 @@ impl DynamoEventRepository {
         let mut result: Vec<SerializedEvent> = Default::default();
         if let Some(entries) = query_output.items {
             for entry in entries {
-                result.push(serialized_event(entry));
+                result.push(serialized_event(entry)?);
             }
         }
         Ok(result)
@@ -149,7 +149,7 @@ impl DynamoEventRepository {
         let mut result: Vec<SerializedEvent> = Default::default();
         if let Some(entries) = query_output.items {
             for entry in entries {
-                result.push(serialized_event(entry));
+                result.push(serialized_event(entry)?);
             }
         }
         Ok(result)
@@ -212,15 +212,17 @@ impl DynamoEventRepository {
     }
 }
 
-fn serialized_event(entry: HashMap<String, AttributeValue>) -> SerializedEvent {
-    let aggregate_id = att_as_string(entry.get("AggregateId"));
-    let sequence = att_as_number(entry.get("AggregateIdSequence"));
-    let aggregate_type = att_as_string(entry.get("AggregateType"));
-    let event_type = att_as_string(entry.get("EventType"));
-    let event_version = att_as_string(entry.get("EventVersion"));
-    let payload = att_as_value(entry.get("Payload"));
-    let metadata = att_as_value(entry.get("Metadata"));
-    SerializedEvent {
+fn serialized_event(
+    entry: HashMap<String, AttributeValue>,
+) -> Result<SerializedEvent, DynamoAggregateError> {
+    let aggregate_id = att_as_string(&entry, "AggregateId")?;
+    let sequence = att_as_number(&entry, "AggregateIdSequence")?;
+    let aggregate_type = att_as_string(&entry, "AggregateType")?;
+    let event_type = att_as_string(&entry, "EventType")?;
+    let event_version = att_as_string(&entry, "EventVersion")?;
+    let payload = att_as_value(&entry, "Payload")?;
+    let metadata = att_as_value(&entry, "Metadata")?;
+    Ok(SerializedEvent {
         aggregate_id,
         sequence,
         aggregate_type,
@@ -228,7 +230,7 @@ fn serialized_event(entry: HashMap<String, AttributeValue>) -> SerializedEvent {
         event_version,
         payload,
         metadata,
-    }
+    })
 }
 
 #[async_trait]
@@ -268,9 +270,9 @@ impl PersistedEventRepository for DynamoEventRepository {
             return Ok(None);
         }
         let query_item = query_items_vec.get(0).unwrap();
-        let aggregate = att_as_value(query_item.get("Payload"));
-        let current_sequence = att_as_number(query_item.get("CurrentSequence"));
-        let current_snapshot = att_as_number(query_item.get("CurrentSnapshot"));
+        let aggregate = att_as_value(query_item, "Payload")?;
+        let current_sequence = att_as_number(query_item, "CurrentSequence")?;
+        let current_snapshot = att_as_number(query_item, "CurrentSnapshot")?;
 
         Ok(Some(SerializedSnapshot {
             aggregate_id: aggregate_id.to_string(),

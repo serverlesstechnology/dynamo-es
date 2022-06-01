@@ -2,9 +2,7 @@ extern crate core;
 
 use aws_sdk_dynamodb::{Client, Credentials, Region};
 use cqrs_es::doc::{Customer, CustomerEvent};
-use cqrs_es::persist::{
-    PersistedEventStore, SemanticVersionEventUpcaster,
-};
+use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster};
 use cqrs_es::EventStore;
 use dynamo_es::DynamoEventRepository;
 use serde_json::Value;
