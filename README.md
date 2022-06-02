@@ -3,16 +3,26 @@
 > A DynamoDB implementation of the `PersistedEventRepository` trait in cqrs-es.
 ### DynamoDb caveats
 AWS' DynamoDb is fast, flexible and highly available, but it does 
-[make some limitations](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ServiceQuotas.html)
+[set some limitations](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ServiceQuotas.html)
 that must be considered in the design of your application.
 
-- Maximum limit of 25 operations in any transaction - Events are inserted in a single transaction, this means that a
-command can not produce more than 25 events using Event store, or 24 events if using Snapshot or Aggregate store.
-This is rare but if a command might produce more than this limit a different backing database should be used. 
-- Item size limit of 400 KB - An event should never reach this size, but it is possible that a serialized aggregate might.
-If this is possible for your use case beware of using Aggregate or Snapshot stores.
-- Maximum request size of 1 MB - This may have the same ramifications as the above for Aggregate or Snapshot stores.
-Additionally, large numbers of events may reach this threshold. 
+#### Maximum limit of 25 operations in any transaction
+
+Events are inserted in a single transaction, which limits the number of events that can be handled from a single command
+using this repository. To operate correctly a command must not produce more than
+- 25 events if using [an event store without snapshots](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_event_store)
+- 24 events if using [snapshots](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_snapshot_store)
+or [an aggregate store](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_aggregate_store)
+ 
+#### Item size limit of 400 KB
+A single event should never reach this size, but a large serialized aggregate might.
+If this is the case for your aggregate beware of using [snapshots](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_snapshot_store)
+or [an aggregate store](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_aggregate_store).
+
+#### Maximum request size of 1 MB
+This could have the same ramifications as the above for [snapshots](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_snapshot_store)
+or [an aggregate store](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.PersistedEventStore.html#method.new_aggregate_store).
+Additionally, an aggregate instance with a large number of events may reach this threshold. 
 To prevent an error while loading or replaying events, 
 [set the streaming channel size](https://docs.rs/dynamo-es/latest/dynamo_es/struct.DynamoEventRepository.html#method.with_streaming_channel_size)
 to a number that ensures you won't exceed this threshold.

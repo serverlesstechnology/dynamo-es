@@ -4,7 +4,7 @@
 // #![warn(clippy::pedantic)]
 //! # dynamo-es
 //!
-//! > A DynamoDb implementation of the `EventStore` trait in [cqrs-es](https://crates.io/crates/persist-es).
+//! > A DynamoDb implementation of the `EventStore` trait in [cqrs-es](https://crates.io/crates/cqrs-es).
 //!
 pub use crate::cqrs::*;
 pub use crate::event_repository::*;
