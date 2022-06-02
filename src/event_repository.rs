@@ -375,7 +375,10 @@ fn stream_events(base_query: fluent_builders::Query, channel_size: usize) -> Rep
                     last_evaluated_key = query_output.last_evaluated_key;
                     if let Some(entries) = query_output.items {
                         for entry in entries {
-                            let event = serialized_event(entry);
+                            let event = match serialized_event(entry) {
+                                Ok(event) => event,
+                                Err(_) => return,
+                            };
                             if feed.push(Ok(event)).await.is_err() {
                                 //         TODO: in the unlikely event of a broken channel this error should be reported.
                                 return;
@@ -415,7 +418,10 @@ fn stream_all_events(base_query: fluent_builders::Scan, channel_size: usize) -> 
                     last_evaluated_key = query_output.last_evaluated_key;
                     if let Some(entries) = query_output.items {
                         for entry in entries {
-                            let event = serialized_event(entry);
+                            let event = match serialized_event(entry) {
+                                Ok(event) => event,
+                                Err(_) => return,
+                            };
                             if feed.push(Ok(event)).await.is_err() {
                                 //         TODO: in the unlikely event of a broken channel this error should be reported.
                                 return;

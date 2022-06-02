@@ -14,7 +14,7 @@ If this is possible for your use case beware of using Aggregate or Snapshot stor
 - Maximum request size of 1 MB - This may have the same ramifications as the above for Aggregate or Snapshot stores.
 Additionally, large numbers of events may reach this threshold. 
 To prevent an error while loading or replaying events, 
-[set the streaming channel size](https://docs.rs/dynamo-es/0.4.2/dynamo_es/struct.DynamoEventRepository.html#method.with_streaming_channel_size)
+[set the streaming channel size](https://docs.rs/dynamo-es/latest/dynamo_es/struct.DynamoEventRepository.html#method.with_streaming_channel_size)
 to a number that ensures you won't exceed this threshold.
 
 
