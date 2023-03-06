@@ -41,6 +41,11 @@ docker-compose up -d
 ./db/create_tables.sh
 ```
 
+Note that this crate used the [AWS DynamoDb Rust SDK](https://aws.amazon.com/sdk-for-rust/), which is currently in 
+Developer Preview. This means that any bugs will be addressed but the underlying interfaces may still be changed 
+resulting in significant changes within this crate. See the 
+[AWS SDK public roadmap for more information](https://github.com/orgs/awslabs/projects/50/views/1).
+
 It is recommended that tables are configured to allow only transactions.
 See:
 https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html
@@ -50,8 +55,8 @@ https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-api
 Things that could be helpful:
 - [User guide](https://doc.rust-cqrs.org) along with an introduction to CQRS and event sourcing.
 - [Demo application](https://github.com/serverlesstechnology/cqrs-demo) using the warp http server.
-- [Change log](https://github.com/serverlesstechnology/cqrs/blob/master/change_log.md)
+- [Change log](https://github.com/serverlesstechnology/cqrs/blob/main/change_log.md)
 
 [![Crates.io](https://img.shields.io/crates/v/dynamo-es)](https://crates.io/crates/dynamo-es)
 [![docs](https://img.shields.io/badge/API-docs-blue.svg)](https://docs.rs/dynamo-es)
-![build status](https://codebuild.us-west-2.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiVVUyR0tRbTZmejFBYURoTHdpR3FnSUFqKzFVZE9JNW5haDZhcUFlY2xtREhtaVVJMWsxcWZOeC8zSUR0UWhpaWZMa0ZQSHlEYjg0N2FoU2lwV1FsTXFRPSIsIml2UGFyYW1ldGVyU3BlYyI6IldjUVMzVEpKN1V3aWxXWGUiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=master)
+![build status](https://codebuild.us-west-2.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiVVUyR0tRbTZmejFBYURoTHdpR3FnSUFqKzFVZE9JNW5haDZhcUFlY2xtREhtaVVJMWsxcWZOeC8zSUR0UWhpaWZMa0ZQSHlEYjg0N2FoU2lwV1FsTXFRPSIsIml2UGFyYW1ldGVyU3BlYyI6IldjUVMzVEpKN1V3aWxXWGUiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=main)
