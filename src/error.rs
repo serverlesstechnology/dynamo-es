@@ -61,27 +61,19 @@ impl From<serde_json::Error> for DynamoAggregateError {
 
 impl From<SdkError<TransactWriteItemsError>> for DynamoAggregateError {
     fn from(error: SdkError<TransactWriteItemsError>) -> Self {
-        match error {
-            SdkError::ConstructionFailure(err) => DynamoAggregateError::UnknownError(err),
-            SdkError::TimeoutError(err) => DynamoAggregateError::UnknownError(err),
-            SdkError::DispatchFailure(err) => DynamoAggregateError::UnknownError(Box::new(err)),
-            SdkError::ResponseError { err, .. } => DynamoAggregateError::UnknownError(err),
-            SdkError::ServiceError { err, .. } => match &err.kind {
-                TransactWriteItemsErrorKind::TransactionCanceledException(cancellation) => {
-                    if let Some(reasons) = &cancellation.cancellation_reasons {
-                        for reason in reasons {
-                            if let Some(code) = &reason.code {
-                                if code.as_str() == "ConditionalCheckFailed" {
-                                    return DynamoAggregateError::OptimisticLock;
-                                }
-                            }
+        if let SdkError::ServiceError(err) = &error {
+            let TransactWriteItemsError { kind, .. } = err.err();
+            if let TransactWriteItemsErrorKind::TransactionCanceledException(cancellation) = kind {
+                if let Some(reasons) = cancellation.cancellation_reasons() {
+                    for reason in reasons {
+                        if reason.code() == Some("ConditionalCheckFailed") {
+                            return DynamoAggregateError::OptimisticLock;
                         }
                     }
-                    DynamoAggregateError::UnknownError(Box::new(err))
                 }
-                _ => DynamoAggregateError::UnknownError(Box::new(err)),
-            },
+            }
         }
+        DynamoAggregateError::UnknownError(Box::new(error))
     }
 }
 
@@ -98,13 +90,7 @@ impl From<SdkError<ScanError>> for DynamoAggregateError {
 }
 
 fn unknown_error<T: StdError + Send + Sync + 'static>(error: SdkError<T>) -> DynamoAggregateError {
-    match error {
-        SdkError::ConstructionFailure(err) => DynamoAggregateError::UnknownError(err),
-        SdkError::TimeoutError(err) => DynamoAggregateError::UnknownError(err),
-        SdkError::DispatchFailure(err) => DynamoAggregateError::UnknownError(Box::new(err)),
-        SdkError::ResponseError { err, .. } => DynamoAggregateError::UnknownError(err),
-        SdkError::ServiceError { err, .. } => DynamoAggregateError::UnknownError(Box::new(err)),
-    }
+    DynamoAggregateError::UnknownError(Box::new(error))
 }
 
 impl From<DynamoAggregateError> for PersistenceError {

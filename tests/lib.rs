@@ -10,13 +10,11 @@ use dynamo_es::DynamoEventRepository;
 use serde_json::Value;
 
 pub async fn test_dynamodb_client() -> Client {
-    let endpoint_uri = "http://localhost:8000".try_into().unwrap();
-    let endpoint = aws_sdk_dynamodb::Endpoint::immutable(endpoint_uri);
     let region = Region::new("us-west-2");
     let credentials = Credentials::new("", "", None, None, "");
     let config = aws_sdk_dynamodb::config::Config::builder()
         .region(region)
-        .endpoint_resolver(endpoint)
+        .endpoint_url("http://localhost:8000")
         .credentials_provider(credentials)
         .build();
     aws_sdk_dynamodb::client::Client::from_conf(config)

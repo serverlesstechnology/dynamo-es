@@ -1,6 +1,21 @@
 # dynamo-es
 
 > A DynamoDB implementation of the `PersistedEventRepository` trait in cqrs-es.
+
+## Usage
+Add to your Cargo.toml file:
+
+```toml
+[dependencies]
+cqrs-es = "0.4.8"
+dynamo-es = "0.4.8"
+```
+
+Requires access to a Dynamo DB with existing tables. See:
+- [Sample database configuration](db/dynamo_db.yaml)
+- [Sample database table layout](db/create_tables.sql)
+- Use `docker-compose` and the `./db/create_tables.sh` script to quickly setup [a local database](docker-compose.yml)
+
 ### DynamoDb caveats
 AWS' DynamoDb is fast, flexible and highly available, but it does 
 [set some limitations](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ServiceQuotas.html)
