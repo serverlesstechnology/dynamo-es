@@ -1,8 +1,9 @@
 extern crate core;
 
-use aws_sdk_dynamodb::model::AttributeValue;
-use aws_sdk_dynamodb::types::Blob;
-use aws_sdk_dynamodb::{Client, Credentials, Region};
+use aws_sdk_dynamodb::config::{Credentials, Region};
+use aws_sdk_dynamodb::primitives::Blob;
+use aws_sdk_dynamodb::types::AttributeValue;
+use aws_sdk_dynamodb::Client;
 use cqrs_es::doc::{Customer, CustomerEvent};
 use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster};
 use cqrs_es::EventStore;

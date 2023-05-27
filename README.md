@@ -40,7 +40,7 @@ or [an aggregate store](https://docs.rs/cqrs-es/latest/cqrs_es/persist/struct.Pe
 Additionally, an aggregate instance with a large number of events may reach this threshold. 
 To prevent an error while loading or replaying events, 
 [set the streaming channel size](https://docs.rs/dynamo-es/latest/dynamo_es/struct.DynamoEventRepository.html#method.with_streaming_channel_size)
-to a number that ensures you won't exceed this threshold.
+to a value that ensures you won't exceed this threshold.
 
 
 ### Testing

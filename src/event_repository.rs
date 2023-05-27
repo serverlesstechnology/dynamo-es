@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use aws_sdk_dynamodb::client::fluent_builders;
-use aws_sdk_dynamodb::model::{AttributeValue, Put, TransactWriteItem};
-use aws_sdk_dynamodb::output::QueryOutput;
-use aws_sdk_dynamodb::types::Blob;
+use aws_sdk_dynamodb::operation::query::builders::QueryFluentBuilder;
+use aws_sdk_dynamodb::operation::query::QueryOutput;
+use aws_sdk_dynamodb::operation::scan::builders::ScanFluentBuilder;
+use aws_sdk_dynamodb::primitives::Blob;
+use aws_sdk_dynamodb::types::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::Client;
 use cqrs_es::persist::{
     PersistedEventRepository, PersistenceError, ReplayStream, SerializedEvent, SerializedSnapshot,
@@ -89,7 +90,7 @@ impl DynamoEventRepository {
         }
     }
 
-    pub(crate) async fn insert_events<A: Aggregate>(
+    pub(crate) async fn insert_events(
         &self,
         events: &[SerializedEvent],
     ) -> Result<(), DynamoAggregateError> {
@@ -232,7 +233,7 @@ impl DynamoEventRepository {
         table: &str,
         aggregate_type: &str,
         aggregate_id: &str,
-    ) -> fluent_builders::Query {
+    ) -> QueryFluentBuilder {
         self.client
             .query()
             .table_name(table)
@@ -323,7 +324,7 @@ impl PersistedEventRepository for DynamoEventRepository {
     ) -> Result<(), PersistenceError> {
         match snapshot_update {
             None => {
-                self.insert_events::<A>(events).await?;
+                self.insert_events(events).await?;
             }
             Some((aggregate_id, aggregate, current_snapshot)) => {
                 self.update_snapshot::<A>(aggregate, aggregate_id, current_snapshot, events)
@@ -355,7 +356,7 @@ impl PersistedEventRepository for DynamoEventRepository {
 }
 
 // TODO: combine these two methods
-fn stream_events(base_query: fluent_builders::Query, channel_size: usize) -> ReplayStream {
+fn stream_events(base_query: QueryFluentBuilder, channel_size: usize) -> ReplayStream {
     let (mut feed, stream) = ReplayStream::new(channel_size);
     tokio::spawn(async move {
         let mut last_evaluated_key: Option<HashMap<String, AttributeValue>> = None;
@@ -398,7 +399,7 @@ fn stream_events(base_query: fluent_builders::Query, channel_size: usize) -> Rep
     });
     stream
 }
-fn stream_all_events(base_query: fluent_builders::Scan, channel_size: usize) -> ReplayStream {
+fn stream_all_events(base_query: ScanFluentBuilder, channel_size: usize) -> ReplayStream {
     let (mut feed, stream) = ReplayStream::new(channel_size);
     tokio::spawn(async move {
         let mut last_evaluated_key: Option<HashMap<String, AttributeValue>> = None;
@@ -462,7 +463,7 @@ mod test {
         assert!(events.is_empty());
 
         event_repo
-            .insert_events::<TestAggregate>(&[
+            .insert_events(&[
                 test_event_envelope(&id, 1, TestEvent::Created(Created { id: id.clone() })),
                 test_event_envelope(
                     &id,
@@ -480,7 +481,7 @@ mod test {
 
         // Optimistic lock error
         let result = event_repo
-            .insert_events::<TestAggregate>(&[
+            .insert_events(&[
                 test_event_envelope(
                     &id,
                     3,

@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use aws_sdk_dynamodb::error::{QueryError, TransactWriteItemsErrorKind};
-use aws_sdk_dynamodb::error::{ScanError, TransactWriteItemsError};
-use aws_sdk_dynamodb::types::SdkError;
+use aws_sdk_dynamodb::error::SdkError;
+use aws_sdk_dynamodb::operation::query::QueryError;
+use aws_sdk_dynamodb::operation::scan::ScanError;
+use aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError;
 use cqrs_es::persist::PersistenceError;
 use cqrs_es::AggregateError;
 use serde::de::StdError;
@@ -62,8 +63,7 @@ impl From<serde_json::Error> for DynamoAggregateError {
 impl From<SdkError<TransactWriteItemsError>> for DynamoAggregateError {
     fn from(error: SdkError<TransactWriteItemsError>) -> Self {
         if let SdkError::ServiceError(err) = &error {
-            let TransactWriteItemsError { kind, .. } = err.err();
-            if let TransactWriteItemsErrorKind::TransactionCanceledException(cancellation) = kind {
+            if let TransactWriteItemsError::TransactionCanceledException(cancellation) = err.err() {
                 if let Some(reasons) = cancellation.cancellation_reasons() {
                     for reason in reasons {
                         if reason.code() == Some("ConditionalCheckFailed") {

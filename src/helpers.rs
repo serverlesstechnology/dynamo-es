@@ -1,6 +1,6 @@
 use aws_sdk_dynamodb::client::Client;
-use aws_sdk_dynamodb::model::{AttributeValue, TransactWriteItem};
-use aws_sdk_dynamodb::output::QueryOutput;
+use aws_sdk_dynamodb::operation::query::QueryOutput;
+use aws_sdk_dynamodb::types::{AttributeValue, TransactWriteItem};
 use serde_json::Value;
 use std::collections::HashMap;
 

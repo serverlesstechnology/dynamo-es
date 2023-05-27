@@ -4,7 +4,8 @@ pub(crate) mod tests {
     use std::fmt::{Display, Formatter};
 
     use async_trait::async_trait;
-    use aws_sdk_dynamodb::{Client, Credentials, Region};
+    use aws_sdk_dynamodb::config::{Credentials, Region};
+    use aws_sdk_dynamodb::Client;
     use cqrs_es::persist::{
         GenericQuery, PersistedEventRepository, PersistedEventStore, SerializedEvent,
         SerializedSnapshot,
@@ -224,7 +225,7 @@ pub(crate) mod tests {
         assert!(events.is_empty());
 
         event_repo
-            .insert_events::<TestAggregate>(&[
+            .insert_events(&[
                 test_event_envelope(&id, 1, TestEvent::Created(Created { id: id.clone() })),
                 test_event_envelope(
                     &id,
@@ -241,7 +242,7 @@ pub(crate) mod tests {
         events.iter().for_each(|e| assert_eq!(&id, &e.aggregate_id));
 
         event_repo
-            .insert_events::<TestAggregate>(&[
+            .insert_events(&[
                 test_event_envelope(
                     &id,
                     3,
