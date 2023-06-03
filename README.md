@@ -13,7 +13,7 @@ dynamo-es = "0.4.9"
 
 Requires access to a Dynamo DB with existing tables. See:
 - [Sample database configuration](db/dynamo_db.yaml)
-- [Sample database table layout](db/create_tables.sql)
+- [Sample database table layout](db/create_tables.sh)
 - Use `docker-compose` and the `./db/create_tables.sh` script to quickly setup [a local database](docker-compose.yml)
 
 ### DynamoDb caveats
