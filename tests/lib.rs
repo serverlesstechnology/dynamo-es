@@ -12,7 +12,7 @@ use serde_json::Value;
 
 pub async fn test_dynamodb_client() -> Client {
     let region = Region::new("us-west-2");
-    let credentials = Credentials::new("", "", None, None, "");
+    let credentials = Credentials::new("TESTAWSID", "TESTAWSKEY", None, None, "");
     let config = aws_sdk_dynamodb::config::Config::builder()
         .region(region)
         .endpoint_url("http://localhost:8000")
