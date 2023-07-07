@@ -84,6 +84,14 @@ async fn simple_es_commit_and_load_test(
         .await
         .unwrap();
     assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
+    let context = event_store.load_aggregate(id.as_str()).await.unwrap();
+
+    // handle an empty events vec
+    event_store
+        .commit(vec![], context, Default::default())
+        .await
+        .unwrap();
+    assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
 }
 
 #[tokio::test]
