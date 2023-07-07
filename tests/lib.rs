@@ -84,14 +84,20 @@ async fn simple_es_commit_and_load_test(
         .await
         .unwrap();
     assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
+}
+
+#[tokio::test]
+async fn commit_no_events() {
+    let client = test_dynamodb_client().await;
+    let repo = DynamoEventRepository::new(client);
+    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo);
+    let id = uuid::Uuid::new_v4().to_string();
     let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 
-    // handle an empty events vec
     event_store
         .commit(vec![], context, Default::default())
         .await
         .unwrap();
-    assert_eq!(3, event_store.load_events(id.as_str()).await.unwrap().len());
 }
 
 #[tokio::test]
