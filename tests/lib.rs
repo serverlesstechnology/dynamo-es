@@ -87,6 +87,20 @@ async fn simple_es_commit_and_load_test(
 }
 
 #[tokio::test]
+async fn commit_no_events() {
+    let client = test_dynamodb_client().await;
+    let repo = DynamoEventRepository::new(client);
+    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo);
+    let id = uuid::Uuid::new_v4().to_string();
+    let context = event_store.load_aggregate(id.as_str()).await.unwrap();
+
+    event_store
+        .commit(vec![], context, Default::default())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn upcasted_event() {
     let client = test_dynamodb_client().await;
     client

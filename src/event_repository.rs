@@ -94,6 +94,9 @@ impl DynamoEventRepository {
         &self,
         events: &[SerializedEvent],
     ) -> Result<(), DynamoAggregateError> {
+        if events.is_empty() {
+            return Ok(());
+        }
         let (transactions, _) = Self::build_event_put_transactions(&self.event_table, events);
         commit_transactions(&self.client, transactions).await?;
         Ok(())
