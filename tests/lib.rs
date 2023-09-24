@@ -5,7 +5,7 @@ use aws_sdk_dynamodb::primitives::Blob;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::Client;
 use cqrs_es::doc::{Customer, CustomerEvent};
-use cqrs_es::persist::{PersistedEventStore, SemanticVersionEventUpcaster};
+use cqrs_es::persist::{MpscReplayStream, PersistedEventStore, SemanticVersionEventUpcaster};
 use cqrs_es::EventStore;
 use dynamo_es::DynamoEventRepository;
 use serde_json::Value;
@@ -23,16 +23,19 @@ pub async fn test_dynamodb_client() -> Client {
 
 pub(crate) async fn new_test_event_store(
     client: Client,
-) -> PersistedEventStore<DynamoEventRepository, Customer> {
+) -> PersistedEventStore<DynamoEventRepository, Customer, MpscReplayStream> {
     let repo = DynamoEventRepository::new(client);
-    PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo)
+    PersistedEventStore::<DynamoEventRepository, Customer, MpscReplayStream>::new_event_store(repo)
 }
 
 #[tokio::test]
 async fn commit_and_load_events() {
     let client = test_dynamodb_client().await;
     let repo = DynamoEventRepository::new(client);
-    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo);
+    let event_store =
+        PersistedEventStore::<DynamoEventRepository, Customer, MpscReplayStream>::new_event_store(
+            repo,
+        );
 
     simple_es_commit_and_load_test(event_store).await;
 }
@@ -42,13 +45,13 @@ async fn commit_and_load_events_snapshot_store() {
     let client = test_dynamodb_client().await;
     let repo = DynamoEventRepository::new(client);
     let event_store =
-        PersistedEventStore::<DynamoEventRepository, Customer>::new_aggregate_store(repo);
+        PersistedEventStore::<DynamoEventRepository, Customer, MpscReplayStream>::new_aggregate_store(repo);
 
     simple_es_commit_and_load_test(event_store).await;
 }
 
 async fn simple_es_commit_and_load_test(
-    event_store: PersistedEventStore<DynamoEventRepository, Customer>,
+    event_store: PersistedEventStore<DynamoEventRepository, Customer, MpscReplayStream>,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
     assert_eq!(0, event_store.load_events(id.as_str()).await.unwrap().len());
@@ -90,7 +93,10 @@ async fn simple_es_commit_and_load_test(
 async fn commit_no_events() {
     let client = test_dynamodb_client().await;
     let repo = DynamoEventRepository::new(client);
-    let event_store = PersistedEventStore::<DynamoEventRepository, Customer>::new_event_store(repo);
+    let event_store =
+        PersistedEventStore::<DynamoEventRepository, Customer, MpscReplayStream>::new_event_store(
+            repo,
+        );
     let id = uuid::Uuid::new_v4().to_string();
     let context = event_store.load_aggregate(id.as_str()).await.unwrap();
 

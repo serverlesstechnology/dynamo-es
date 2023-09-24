@@ -8,7 +8,8 @@ use aws_sdk_dynamodb::primitives::Blob;
 use aws_sdk_dynamodb::types::{AttributeValue, Put, TransactWriteItem};
 use aws_sdk_dynamodb::Client;
 use cqrs_es::persist::{
-    PersistedEventRepository, PersistenceError, ReplayStream, SerializedEvent, SerializedSnapshot,
+    MpscReplayStream, PersistedEventRepository, PersistenceError, SerializedEvent,
+    SerializedSnapshot,
 };
 use cqrs_es::Aggregate;
 use serde_json::Value;
@@ -272,7 +273,7 @@ fn serialized_event(
 }
 
 #[async_trait]
-impl PersistedEventRepository for DynamoEventRepository {
+impl PersistedEventRepository<MpscReplayStream> for DynamoEventRepository {
     async fn get_events<A: Aggregate>(
         &self,
         aggregate_id: &str,
@@ -340,7 +341,7 @@ impl PersistedEventRepository for DynamoEventRepository {
     async fn stream_events<A: Aggregate>(
         &self,
         aggregate_id: &str,
-    ) -> Result<ReplayStream, PersistenceError> {
+    ) -> Result<MpscReplayStream, PersistenceError> {
         let query = self
             .create_query(&self.event_table, &A::aggregate_type(), aggregate_id)
             .await
@@ -348,7 +349,7 @@ impl PersistedEventRepository for DynamoEventRepository {
         Ok(stream_events(query, self.stream_channel_size))
     }
 
-    async fn stream_all_events<A: Aggregate>(&self) -> Result<ReplayStream, PersistenceError> {
+    async fn stream_all_events<A: Aggregate>(&self) -> Result<MpscReplayStream, PersistenceError> {
         let scan = self
             .client
             .scan()
@@ -359,8 +360,8 @@ impl PersistedEventRepository for DynamoEventRepository {
 }
 
 // TODO: combine these two methods
-fn stream_events(base_query: QueryFluentBuilder, channel_size: usize) -> ReplayStream {
-    let (mut feed, stream) = ReplayStream::new(channel_size);
+fn stream_events(base_query: QueryFluentBuilder, channel_size: usize) -> MpscReplayStream {
+    let (mut feed, stream) = MpscReplayStream::new(channel_size);
     tokio::spawn(async move {
         let mut last_evaluated_key: Option<HashMap<String, AttributeValue>> = None;
         loop {
@@ -402,8 +403,8 @@ fn stream_events(base_query: QueryFluentBuilder, channel_size: usize) -> ReplayS
     });
     stream
 }
-fn stream_all_events(base_query: ScanFluentBuilder, channel_size: usize) -> ReplayStream {
-    let (mut feed, stream) = ReplayStream::new(channel_size);
+fn stream_all_events(base_query: ScanFluentBuilder, channel_size: usize) -> MpscReplayStream {
+    let (mut feed, stream) = MpscReplayStream::new(channel_size);
     tokio::spawn(async move {
         let mut last_evaluated_key: Option<HashMap<String, AttributeValue>> = None;
         loop {
@@ -448,7 +449,7 @@ fn stream_all_events(base_query: ScanFluentBuilder, channel_size: usize) -> Repl
 
 #[cfg(test)]
 mod test {
-    use cqrs_es::persist::PersistedEventRepository;
+    use cqrs_es::persist::{PersistedEventRepository, ReplayStream};
 
     use crate::error::DynamoAggregateError;
     use crate::testing::tests::{
