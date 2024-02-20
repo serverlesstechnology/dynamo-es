@@ -56,7 +56,7 @@ where
             None => return Ok(None),
             Some(items) => items,
         };
-        let query_item = match query_items.get(0) {
+        let query_item = match query_items.first() {
             None => return Ok(None),
             Some(item) => item,
         };
@@ -74,7 +74,7 @@ where
             None => return Ok(None),
             Some(items) => items,
         };
-        let query_item = match query_items.get(0) {
+        let query_item = match query_items.first() {
             None => {
                 let view = V::default();
                 let context = ViewContext::new(view_id.to_string(), 0);
@@ -103,7 +103,8 @@ where
                 .item("Payload", payload)
                 .condition_expression("attribute_not_exists(ViewVersion) OR (ViewVersion  = :expected_view_version)")
                 .expression_attribute_values(":expected_view_version", expected_view_version)
-                .build())
+                .build()
+                .map_err(|e|PersistenceError::UnknownError(Box::new(e)))?)
             .build();
         commit_transactions(&self.client, vec![transaction]).await?;
         Ok(())

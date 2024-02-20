@@ -124,6 +124,7 @@ pub(crate) mod tests {
         let region = Region::new("us-west-2");
         let credentials = Credentials::new("TESTAWSID", "TESTAWSKEY", None, None, "");
         let config = aws_sdk_dynamodb::config::Config::builder()
+            .behavior_version_latest()
             .region(region)
             .endpoint_url("http://localhost:8000")
             .credentials_provider(credentials)

@@ -133,7 +133,8 @@ impl DynamoEventRepository {
                 .item("Payload", payload)
                 .item("Metadata", metadata)
                 .condition_expression("attribute_not_exists( AggregateIdSequence )")
-                .build();
+                .build()
+                .unwrap();
             let write_item = TransactWriteItem::builder().put(put).build();
             transactions.push(write_item);
         }
@@ -215,7 +216,7 @@ impl DynamoEventRepository {
                 .item("Payload", payload)
                 .condition_expression("attribute_not_exists(CurrentSnapshot) OR (CurrentSnapshot  = :current_snapshot)")
                 .expression_attribute_values(":current_snapshot", expected_snapshot)
-                .build())
+                .build()?)
             .build());
         commit_transactions(&self.client, transactions).await?;
         Ok(())
@@ -307,7 +308,7 @@ impl PersistedEventRepository for DynamoEventRepository {
         if query_items_vec.is_empty() {
             return Ok(None);
         }
-        let query_item = query_items_vec.get(0).unwrap();
+        let query_item = query_items_vec.first().unwrap();
         let aggregate = att_as_value(query_item, "Payload")?;
         let current_sequence = att_as_number(query_item, "CurrentSequence")?;
         let current_snapshot = att_as_number(query_item, "CurrentSnapshot")?;
@@ -525,7 +526,7 @@ mod test {
             .await
             .unwrap();
         let mut found_in_stream = 0;
-        while let Some(_) = stream.next::<TestAggregate>().await {
+        while let Some(_) = stream.next::<TestAggregate>(&None).await {
             found_in_stream += 1;
         }
         assert_eq!(found_in_stream, 2);
@@ -535,7 +536,7 @@ mod test {
             .await
             .unwrap();
         let mut found_in_stream = 0;
-        while let Some(_) = stream.next::<TestAggregate>().await {
+        while let Some(_) = stream.next::<TestAggregate>(&None).await {
             found_in_stream += 1;
         }
         assert!(found_in_stream >= 2);

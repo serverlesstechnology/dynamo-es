@@ -7,8 +7,8 @@ Add to your Cargo.toml file:
 
 ```toml
 [dependencies]
-cqrs-es = "0.4.10"
-dynamo-es = "0.4.10"
+cqrs-es = "0.4.11"
+dynamo-es = "0.4.11"
 ```
 
 Requires access to a Dynamo DB with existing tables. See:
@@ -55,11 +55,6 @@ To prepare a local test environment (requires a local installation of
 docker-compose up -d
 ./db/create_tables.sh
 ```
-
-Note that this crate used the [AWS DynamoDb Rust SDK](https://aws.amazon.com/sdk-for-rust/), which is currently in 
-Developer Preview. This means that any bugs will be addressed but the underlying interfaces may still be changed 
-resulting in significant changes within this crate. See the 
-[AWS SDK public roadmap for more information](https://github.com/orgs/awslabs/projects/50/views/1).
 
 It is recommended that tables are configured to allow only transactions.
 See:

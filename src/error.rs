@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use aws_sdk_dynamodb::error::SdkError;
+use aws_sdk_dynamodb::error::{BuildError, SdkError};
 use aws_sdk_dynamodb::operation::query::QueryError;
 use aws_sdk_dynamodb::operation::scan::ScanError;
 use aws_sdk_dynamodb::operation::transact_write_items::TransactWriteItemsError;
@@ -64,11 +64,9 @@ impl From<SdkError<TransactWriteItemsError>> for DynamoAggregateError {
     fn from(error: SdkError<TransactWriteItemsError>) -> Self {
         if let SdkError::ServiceError(err) = &error {
             if let TransactWriteItemsError::TransactionCanceledException(cancellation) = err.err() {
-                if let Some(reasons) = cancellation.cancellation_reasons() {
-                    for reason in reasons {
-                        if reason.code() == Some("ConditionalCheckFailed") {
-                            return DynamoAggregateError::OptimisticLock;
-                        }
+                for reason in cancellation.cancellation_reasons() {
+                    if reason.code() == Some("ConditionalCheckFailed") {
+                        return DynamoAggregateError::OptimisticLock;
                     }
                 }
             }
@@ -80,6 +78,12 @@ impl From<SdkError<TransactWriteItemsError>> for DynamoAggregateError {
 impl From<SdkError<QueryError>> for DynamoAggregateError {
     fn from(error: SdkError<QueryError>) -> Self {
         unknown_error(error)
+    }
+}
+
+impl From<BuildError> for DynamoAggregateError {
+    fn from(error: BuildError) -> Self {
+        DynamoAggregateError::UnknownError(Box::new(error))
     }
 }
 
