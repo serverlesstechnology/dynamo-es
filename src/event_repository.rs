@@ -117,10 +117,10 @@ impl DynamoEventRepository {
             let sequence = AttributeValue::N(String::from(&event.sequence.to_string()));
             let event_version = AttributeValue::S(String::from(&event.event_version));
             let event_type = AttributeValue::S(String::from(&event.event_type));
-            let payload_blob = serde_json::to_vec(&event.payload).unwrap();
-            let payload = AttributeValue::B(Blob::new(payload_blob));
-            let metadata_blob = serde_json::to_vec(&event.metadata).unwrap();
-            let metadata = AttributeValue::B(Blob::new(metadata_blob));
+            let payload_json = serde_json::to_string(&event.payload).unwrap();
+            let payload = AttributeValue::S(payload_json);
+            let metadata_json = serde_json::to_string(&event.metadata).unwrap();
+            let metadata = AttributeValue::S(metadata_json);
 
             let put = Put::builder()
                 .table_name(table_name)
@@ -202,8 +202,8 @@ impl DynamoEventRepository {
         let aggregate_id = AttributeValue::S(aggregate_id);
         let current_sequence = AttributeValue::N(current_sequence.to_string());
         let current_snapshot = AttributeValue::N(current_snapshot.to_string());
-        let payload_blob = serde_json::to_vec(&aggregate_payload).unwrap();
-        let payload = AttributeValue::B(Blob::new(payload_blob));
+        let payload_json = serde_json::to_string(&aggregate_payload).unwrap();
+        let payload = AttributeValue::S(payload_json);
         let expected_snapshot = AttributeValue::N(expected_snapshot.to_string());
         transactions.push(TransactWriteItem::builder()
             .put(Put::builder()
