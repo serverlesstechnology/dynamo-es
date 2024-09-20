@@ -27,6 +27,7 @@ pub struct DynamoEventRepository {
     event_table: String,
     snapshot_table: String,
     stream_channel_size: usize,
+    use_strings: bool,
 }
 
 impl DynamoEventRepository {
@@ -58,10 +59,8 @@ impl DynamoEventRepository {
     /// ```
     pub fn with_streaming_channel_size(self, stream_channel_size: usize) -> Self {
         Self {
-            client: self.client,
-            event_table: self.event_table,
-            snapshot_table: self.snapshot_table,
             stream_channel_size,
+            ..self
         }
     }
     /// Configures a `DynamoEventRepository` to use the provided table names.
@@ -80,6 +79,14 @@ impl DynamoEventRepository {
     pub fn with_tables(self, event_table: &str, snapshot_table: &str) -> Self {
         Self::use_table_names(self.client, event_table, snapshot_table)
     }
+    /// Configures a `DynamoEventRepository` to use strings rather than buffers for the payload
+    /// and metadata fields.
+    pub fn with_use_strings(self, use_strings: bool) -> Self {
+        Self {
+            use_strings,
+            ..self
+        }
+    }
 
     fn use_table_names(client: Client, event_table: &str, snapshot_table: &str) -> Self {
         Self {
@@ -87,6 +94,7 @@ impl DynamoEventRepository {
             event_table: event_table.to_string(),
             snapshot_table: snapshot_table.to_string(),
             stream_channel_size: DEFAULT_STREAMING_CHANNEL_SIZE,
+            use_strings: false,
         }
     }
 
@@ -97,7 +105,8 @@ impl DynamoEventRepository {
         if events.is_empty() {
             return Ok(());
         }
-        let (transactions, _) = Self::build_event_put_transactions(&self.event_table, events);
+        let (transactions, _) =
+            Self::build_event_put_transactions(&self.event_table, events, self.use_strings);
         commit_transactions(&self.client, transactions).await?;
         Ok(())
     }
@@ -105,6 +114,7 @@ impl DynamoEventRepository {
     fn build_event_put_transactions(
         table_name: &str,
         events: &[SerializedEvent],
+        use_strings: bool,
     ) -> (Vec<TransactWriteItem>, usize) {
         let mut current_sequence: usize = 0;
         let mut transactions: Vec<TransactWriteItem> = Vec::default();
@@ -117,10 +127,22 @@ impl DynamoEventRepository {
             let sequence = AttributeValue::N(String::from(&event.sequence.to_string()));
             let event_version = AttributeValue::S(String::from(&event.event_version));
             let event_type = AttributeValue::S(String::from(&event.event_type));
-            let payload_json = serde_json::to_string(&event.payload).unwrap();
-            let payload = AttributeValue::S(payload_json);
-            let metadata_json = serde_json::to_string(&event.metadata).unwrap();
-            let metadata = AttributeValue::S(metadata_json);
+
+            let payload = if use_strings {
+                let payload_json = serde_json::to_string(&event.payload).unwrap();
+                AttributeValue::S(payload_json)
+            } else {
+                let payload_blob = serde_json::to_vec(&event.payload).unwrap();
+                AttributeValue::B(Blob::new(payload_blob))
+            };
+
+            let metadata = if use_strings {
+                let metadata_json = serde_json::to_string(&event.metadata).unwrap();
+                AttributeValue::S(metadata_json)
+            } else {
+                let metadata_blob = serde_json::to_vec(&event.metadata).unwrap();
+                AttributeValue::B(Blob::new(metadata_blob))
+            };
 
             let put = Put::builder()
                 .table_name(table_name)
@@ -192,18 +214,26 @@ impl DynamoEventRepository {
         aggregate_id: String,
         current_snapshot: usize,
         events: &[SerializedEvent],
+        use_strings: bool,
     ) -> Result<(), DynamoAggregateError> {
         let expected_snapshot = current_snapshot - 1;
         let (mut transactions, current_sequence) =
-            Self::build_event_put_transactions(&self.event_table, events);
+            Self::build_event_put_transactions(&self.event_table, events, self.use_strings);
         let aggregate_type_and_id =
             AttributeValue::S(format!("{}:{}", A::aggregate_type(), &aggregate_id));
         let aggregate_type = AttributeValue::S(A::aggregate_type());
         let aggregate_id = AttributeValue::S(aggregate_id);
         let current_sequence = AttributeValue::N(current_sequence.to_string());
         let current_snapshot = AttributeValue::N(current_snapshot.to_string());
-        let payload_json = serde_json::to_string(&aggregate_payload).unwrap();
-        let payload = AttributeValue::S(payload_json);
+
+        let payload = if use_strings {
+            let payload_json = serde_json::to_string(&aggregate_payload).unwrap();
+            AttributeValue::S(payload_json)
+        } else {
+            let payload_blob = serde_json::to_vec(&aggregate_payload).unwrap();
+            AttributeValue::B(Blob::new(payload_blob))
+        };
+
         let expected_snapshot = AttributeValue::N(expected_snapshot.to_string());
         transactions.push(TransactWriteItem::builder()
             .put(Put::builder()
@@ -331,8 +361,14 @@ impl PersistedEventRepository for DynamoEventRepository {
                 self.insert_events(events).await?;
             }
             Some((aggregate_id, aggregate, current_snapshot)) => {
-                self.update_snapshot::<A>(aggregate, aggregate_id, current_snapshot, events)
-                    .await?;
+                self.update_snapshot::<A>(
+                    aggregate,
+                    aggregate_id,
+                    current_snapshot,
+                    events,
+                    self.use_strings,
+                )
+                .await?;
             }
         }
         Ok(())
@@ -562,6 +598,7 @@ mod test {
             id.clone(),
             1,
             &vec![],
+            false,
         )
         .await
         .unwrap();
@@ -593,6 +630,7 @@ mod test {
             id.clone(),
             2,
             &vec![],
+            false,
         )
         .await
         .unwrap();
@@ -625,6 +663,7 @@ mod test {
                 id.clone(),
                 2,
                 &vec![],
+                false,
             )
             .await
             .unwrap_err();

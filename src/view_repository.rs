@@ -13,6 +13,7 @@ pub struct DynamoViewRepository<V, A> {
     _phantom: PhantomData<(V, A)>,
     view_name: String,
     client: aws_sdk_dynamodb::client::Client,
+    use_strings: bool,
 }
 
 impl<V, A> DynamoViewRepository<V, A>
@@ -40,6 +41,15 @@ where
             _phantom: Default::default(),
             view_name: view_name.to_string(),
             client,
+            use_strings: false,
+        }
+    }
+    /// Configures a `DynamoViewRepository` to use strings rather than buffers for the payload
+    /// field.
+    pub fn with_use_strings(self, use_strings: bool) -> Self {
+        Self {
+            use_strings,
+            ..self
         }
     }
 }
@@ -93,8 +103,15 @@ where
         let view_id = AttributeValue::S(String::from(&context.view_instance_id));
         let expected_view_version = AttributeValue::N(context.version.to_string());
         let view_version = AttributeValue::N((context.version + 1).to_string());
-        let payload_blob = serde_json::to_vec(&view).unwrap();
-        let payload = AttributeValue::B(Blob::new(payload_blob));
+
+        let payload = if self.use_strings {
+            let payload_json = serde_json::to_string(&view).unwrap();
+            AttributeValue::S(payload_json)
+        } else {
+            let payload_blob = serde_json::to_vec(&view).unwrap();
+            AttributeValue::B(Blob::new(payload_blob))
+        };
+
         let transaction = TransactWriteItem::builder()
             .put(Put::builder()
                 .table_name(&self.view_name)
