@@ -6,7 +6,9 @@ use aws_sdk_dynamodb::types::{AttributeValue, Put, TransactWriteItem};
 use cqrs_es::persist::{PersistenceError, ViewContext, ViewRepository};
 use cqrs_es::{Aggregate, View};
 
-use crate::helpers::{att_as_number, att_as_value, commit_transactions, load_dynamo_view};
+use crate::helpers::{
+    att_as_number, att_as_string, att_as_value, commit_transactions, load_dynamo_view,
+};
 
 /// A DynamoDb backed view repository for use in backing a `GenericQuery`.
 pub struct DynamoViewRepository<V, A> {
@@ -70,8 +72,14 @@ where
             None => return Ok(None),
             Some(item) => item,
         };
-        let payload = att_as_value(query_item, "Payload")?;
-        let view: V = serde_json::from_value(payload)?;
+        let view: V = if self.use_strings {
+            let payload = att_as_string(query_item, "Payload")?;
+            serde_json::from_str(&payload)?
+        } else {
+            let payload = att_as_value(query_item, "Payload")?;
+            serde_json::from_value(payload)?
+        };
+
         Ok(Some(view))
     }
 
@@ -93,8 +101,15 @@ where
             Some(item) => item,
         };
         let version = att_as_number(query_item, "ViewVersion")?;
-        let payload = att_as_value(query_item, "Payload")?;
-        let view: V = serde_json::from_value(payload)?;
+
+        let view: V = if self.use_strings {
+            let payload = att_as_string(query_item, "Payload")?;
+            serde_json::from_str(&payload)?
+        } else {
+            let payload = att_as_value(query_item, "Payload")?;
+            serde_json::from_value(payload)?
+        };
+
         let context = ViewContext::new(view_id.to_string(), version as i64);
         Ok(Some((view, context)))
     }
