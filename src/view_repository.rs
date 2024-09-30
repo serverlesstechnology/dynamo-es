@@ -6,13 +6,16 @@ use aws_sdk_dynamodb::types::{AttributeValue, Put, TransactWriteItem};
 use cqrs_es::persist::{PersistenceError, ViewContext, ViewRepository};
 use cqrs_es::{Aggregate, View};
 
-use crate::helpers::{att_as_number, att_as_value, commit_transactions, load_dynamo_view};
+use crate::helpers::{
+    att_as_number, att_as_string, att_as_value, commit_transactions, load_dynamo_view,
+};
 
 /// A DynamoDb backed view repository for use in backing a `GenericQuery`.
 pub struct DynamoViewRepository<V, A> {
     _phantom: PhantomData<(V, A)>,
     view_name: String,
     client: aws_sdk_dynamodb::client::Client,
+    use_strings: bool,
 }
 
 impl<V, A> DynamoViewRepository<V, A>
@@ -40,6 +43,15 @@ where
             _phantom: Default::default(),
             view_name: view_name.to_string(),
             client,
+            use_strings: false,
+        }
+    }
+    /// Configures a `DynamoViewRepository` to use strings rather than buffers for the payload
+    /// field.
+    pub fn with_use_strings(self, use_strings: bool) -> Self {
+        Self {
+            use_strings,
+            ..self
         }
     }
 }
@@ -60,8 +72,14 @@ where
             None => return Ok(None),
             Some(item) => item,
         };
-        let payload = att_as_value(query_item, "Payload")?;
-        let view: V = serde_json::from_value(payload)?;
+        let view: V = if self.use_strings {
+            let payload = att_as_string(query_item, "Payload")?;
+            serde_json::from_str(&payload)?
+        } else {
+            let payload = att_as_value(query_item, "Payload")?;
+            serde_json::from_value(payload)?
+        };
+
         Ok(Some(view))
     }
 
@@ -83,8 +101,15 @@ where
             Some(item) => item,
         };
         let version = att_as_number(query_item, "ViewVersion")?;
-        let payload = att_as_value(query_item, "Payload")?;
-        let view: V = serde_json::from_value(payload)?;
+
+        let view: V = if self.use_strings {
+            let payload = att_as_string(query_item, "Payload")?;
+            serde_json::from_str(&payload)?
+        } else {
+            let payload = att_as_value(query_item, "Payload")?;
+            serde_json::from_value(payload)?
+        };
+
         let context = ViewContext::new(view_id.to_string(), version as i64);
         Ok(Some((view, context)))
     }
@@ -93,8 +118,15 @@ where
         let view_id = AttributeValue::S(String::from(&context.view_instance_id));
         let expected_view_version = AttributeValue::N(context.version.to_string());
         let view_version = AttributeValue::N((context.version + 1).to_string());
-        let payload_blob = serde_json::to_vec(&view).unwrap();
-        let payload = AttributeValue::B(Blob::new(payload_blob));
+
+        let payload = if self.use_strings {
+            let payload_json = serde_json::to_string(&view).unwrap();
+            AttributeValue::S(payload_json)
+        } else {
+            let payload_blob = serde_json::to_vec(&view).unwrap();
+            AttributeValue::B(Blob::new(payload_blob))
+        };
+
         let transaction = TransactWriteItem::builder()
             .put(Put::builder()
                 .table_name(&self.view_name)

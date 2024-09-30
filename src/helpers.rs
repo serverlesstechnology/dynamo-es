@@ -46,9 +46,12 @@ pub(crate) fn att_as_value(
     let attribute = require_attribute(values, attribute_name)?;
     match attribute.as_b() {
         Ok(payload_blob) => Ok(serde_json::from_slice(payload_blob.as_ref())?),
-        Err(_) => Err(DynamoAggregateError::MissingAttribute(
-            attribute_name.to_string(),
-        )),
+        Err(_) => match attribute.as_s() {
+            Ok(payload_string) => Ok(serde_json::from_str(&payload_string)?),
+            Err(_) => Err(DynamoAggregateError::MissingAttribute(
+                attribute_name.to_string(),
+            )),
+        },
     }
 }
 
